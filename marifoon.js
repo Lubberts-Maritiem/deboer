@@ -1,0 +1,129 @@
+// api/marifoon.js
+// Haalt het actuele marifoonbericht op van knmi.nl en filtert de secties
+// die de sectoren "Texel" en "Harlingen" bevatten.
+//
+// Draait als Vercel serverless function. Nodig omdat dit server-side moet
+// gebeuren (nette scraping-etiquette, geen browser-CORS-gedoe, en zodat de
+// site niet bij elke bezoeker opnieuw knmi.nl belast).
+
+const SOURCE_URL = "https://www.knmi.nl/nederland-nu/maritiem/marifoon";
+const SECTORS = ["texel", "harlingen"];
+
+// Simpele in-memory cache: het bericht wisselt maar 4x per dag,
+// dus we hoeven echt niet bij elke request opnieuw te scrapen.
+let cache = { data: null, fetchedAt: 0 };
+const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minuten
+
+export default async function handler(req, res) {
+  try {
+    const now = Date.now();
+    if (cache.data && now - cache.fetchedAt < CACHE_TTL_MS) {
+      res.setHeader("Cache-Control", "public, max-age=300");
+      return res.status(200).json(cache.data);
+    }
+
+    const response = await fetch(SOURCE_URL, {
+      headers: {
+        // Nette, herkenbare user-agent. Geen misleiding, geen browser-spoofing.
+        "User-Agent": "wadoversteken.nl marifoon-widget (contact via wadoversteken.nl)",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`KNMI-pagina gaf status ${response.status}`);
+    }
+
+    const html = await response.text();
+    const result = parseMarifoonHtml(html);
+
+    cache = { data: result, fetchedAt: now };
+    res.setHeader("Cache-Control", "public, max-age=300");
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("Marifoon-scrape mislukt:", err);
+    return res.status(502).json({
+      error: "Kon marifoonbericht niet ophalen",
+      detail: String(err.message || err),
+    });
+  }
+}
+
+function decodeEntities(str) {
+  return str
+    .replace(/&amp;/g, "&")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .trim();
+}
+
+function parseMarifoonHtml(html) {
+  // De KNMI-pagina rendert elk district-blok als:
+  //   <h2>Kop van de sectie (bijv. "Verwachting geldig van ... tot ..."):</h2>
+  //   <p><i>Districtsnamen</i><br>Verwachtingstekst.</p>
+  //   <p><i>Andere districtsnamen</i><br>Andere tekst.</p>
+  //   ...
+  // We lopen door de HTML op volgorde, zodat elk <p>-blok gekoppeld blijft
+  // aan de meest recente <h2>-kop erboven.
+
+  const opgesteldMatch = html.match(/Opgesteld:\s*([^<]+)</i);
+  const opgesteld = opgesteldMatch ? decodeEntities(opgesteldMatch[1]) : null;
+
+  const volgendMatch = html.match(/Een volgend bericht[^<]*</i);
+  const volgendBericht = volgendMatch ? decodeEntities(volgendMatch[0].replace(/<$/, "")) : null;
+
+  // Alle koppen (<h2>) en districtsblokken (<p><i>...) in volgorde van voorkomen,
+  // met hun positie in de string, zodat we ze kunnen interleaven.
+  const tokens = [];
+  const h2Re = /<h2[^>]*>([^<]*)<\/h2>/gi;
+  const blokRe = /<p><i>([^<]+)<\/i><br\s*\/?>([^<]+)<\/p>/gi;
+
+  let m;
+  while ((m = h2Re.exec(html))) {
+    tokens.push({ type: "kop", pos: m.index, tekst: decodeEntities(m[1]) });
+  }
+  while ((m = blokRe.exec(html))) {
+    tokens.push({
+      type: "blok",
+      pos: m.index,
+      districten: decodeEntities(m[1]),
+      tekst: decodeEntities(m[2]),
+    });
+  }
+  tokens.sort((a, b) => a.pos - b.pos);
+
+  let huidigeKop = "";
+  const gevonden = [];
+  for (const token of tokens) {
+    if (token.type === "kop") {
+      huidigeKop = token.tekst;
+      continue;
+    }
+    const isOnzeSector = SECTORS.some((s) =>
+      new RegExp(`\\b${s}\\b`, "i").test(token.districten)
+    );
+    if (isOnzeSector) {
+      gevonden.push({
+        periode: huidigeKop.replace(/:$/, ""),
+        districten: token.districten,
+        tekst: token.tekst,
+      });
+    }
+  }
+
+  return {
+    bron: SOURCE_URL,
+    opgehaaldOp: new Date().toISOString(),
+    opgesteld,
+    // Alleen de verwachtingsteksten voor Texel/Harlingen, zonder de
+    // "Waarschuwingen voor de scheepvaart"-sectie (dat is geen lopende tekst
+    // maar een losse Bft-waarde) en zonder het weeroverzicht.
+    verwachtingen: gevonden.filter((g) =>
+      /^verwachting geldig/i.test(g.periode)
+    ),
+    volgendBericht,
+    licentie: "Bron: KNMI (knmi.nl). Automatisch overgenomen, geen officiële distributie.",
+  };
+}

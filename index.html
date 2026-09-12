@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Marifoonbericht. Texel &amp; Harlingen</title>
+<style>
+  :root {
+    --zee: #0b3d59;
+    --zee-licht: #e8f1f5;
+    --tekst: #142433;
+  }
+  body {
+    margin: 0;
+    padding: 2rem 1.25rem;
+    background: var(--zee-licht);
+    color: var(--tekst);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+  }
+  main {
+    max-width: 560px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--zee);
+    margin: 0 0 1rem;
+  }
+  .bericht {
+    background: white;
+    border-radius: 10px;
+    padding: 1.1rem 1.25rem;
+    margin-bottom: 0.75rem;
+    box-shadow: 0 1px 3px rgba(11, 61, 89, 0.12);
+    font-size: 1.05rem;
+  }
+  .status {
+    color: #5a6b78;
+    font-size: 0.9rem;
+  }
+  .getij-regel {
+    font-weight: 600;
+    color: var(--zee);
+  }
+  select#locatie {
+    font: inherit;
+    padding: 0.3rem 0.5rem;
+    border-radius: 6px;
+    border: 1px solid #b9cdd8;
+    background: white;
+    color: var(--tekst);
+    margin-bottom: 1rem;
+  }
+  label[for="locatie"] {
+    font-size: 0.9rem;
+    color: #5a6b78;
+    margin-right: 0.5rem;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Marifoonbericht, sector Texel &amp; Harlingen</h1>
+  <div id="inhoud" class="status">Bezig met laden...</div>
+
+  <div>
+    <label for="locatie">Getij bij:</label>
+    <select id="locatie">
+      <option value="denhelder">Den Helder</option>
+      <option value="denoever">Den Oever</option>
+      <option value="texel" selected>Texel</option>
+      <option value="harlingen">Harlingen</option>
+      <option value="vlieland">Vlieland</option>
+      <option value="terschelling">Terschelling</option>
+      <option value="ameland">Ameland</option>
+      <option value="holwerd">Holwerd</option>
+      <option value="schiermonnikoog">Schiermonnikoog</option>
+      <option value="lauwersoog">Lauwersoog</option>
+    </select>
+  </div>
+</main>
+
+<script>
+function formatTijd(iso) {
+  if (!iso) return "onbekend";
+  const d = new Date(iso);
+  return d.toLocaleString("nl-NL", {
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+async function laadAlles() {
+  const el = document.getElementById("inhoud");
+  const locatie = document.getElementById("locatie").value;
+
+  try {
+    const [marifoonRes, getijRes] = await Promise.all([
+      fetch("/api/marifoon"),
+      fetch(`/api/getij?locatie=${encodeURIComponent(locatie)}`),
+    ]);
+    const marifoon = await marifoonRes.json();
+    const getij = await getijRes.json();
+
+    if (marifoon.error) throw new Error(marifoon.error);
+
+    el.innerHTML = "";
+    el.className = "";
+
+    if (!marifoon.verwachtingen || marifoon.verwachtingen.length === 0) {
+      const p = document.createElement("p");
+      p.className = "status";
+      p.textContent = "Geen actueel marifoonbericht beschikbaar.";
+      el.appendChild(p);
+    } else {
+      for (const v of marifoon.verwachtingen) {
+        const p = document.createElement("p");
+        p.className = "bericht";
+        p.textContent = v.tekst;
+        el.appendChild(p);
+      }
+    }
+
+    // LW/HW-regel achteraan, voor de gekozen locatie.
+    const getijP = document.createElement("p");
+    getijP.className = "bericht getij-regel";
+    if (getij.error) {
+      getijP.textContent = "Getijgegevens niet beschikbaar.";
+    } else {
+      const lw = formatTijd(getij.volgendLaagwater?.tijdstip);
+      const hw = formatTijd(getij.volgendHoogwater?.tijdstip);
+      getijP.textContent = `${getij.locatie}, LW: ${lw}, HW: ${hw}`;
+    }
+    el.appendChild(getijP);
+  } catch (err) {
+    el.className = "status";
+    el.textContent = "Kon de gegevens niet ophalen.";
+    console.error(err);
+  }
+}
+
+document.getElementById("locatie").addEventListener("change", laadAlles);
+laadAlles();
+setInterval(laadAlles, 15 * 60 * 1000); // elke 15 minuten verversen
+</script>
+</body>
+</html>
