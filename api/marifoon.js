@@ -7,19 +7,38 @@
 // site niet bij elke bezoeker opnieuw knmi.nl belast).
 
 const SOURCE_URL = "https://www.knmi.nl/nederland-nu/maritiem/marifoon";
-const SECTORS = ["texel", "harlingen"];
 
-// Simpele in-memory cache: het bericht wisselt maar 4x per dag,
-// dus we hoeven echt niet bij elke request opnieuw te scrapen.
-let cache = { data: null, fetchedAt: 0 };
+// Elke locatie uit het getij-menu hoort bij één marifoon-sector.
+// Bron: KNMI deelt Texel en Harlingen soms samen in (bijv. 's nachts),
+// maar overdag vaak apart met een eigen tekst per sector.
+const LOCATIE_SECTOR = {
+  denhelder: "texel",
+  denoever: "texel",
+  texel: "texel",
+  harlingen: "harlingen",
+  vlieland: "harlingen",
+  terschelling: "harlingen",
+  ameland: "harlingen",
+  holwerd: "harlingen",
+  schiermonnikoog: "harlingen",
+  lauwersoog: "harlingen",
+};
+
+// In-memory cache per sector: het bericht wisselt maar 4x per dag,
+// dus we hoeven niet bij elke request opnieuw te scrapen.
+const cache = {}; // { [sector]: { data, fetchedAt } }
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minuten
 
 export default async function handler(req, res) {
+  const locatieKey = (req.query?.locatie || "texel").toLowerCase();
+  const sector = LOCATIE_SECTOR[locatieKey] || "texel";
+
   try {
     const now = Date.now();
-    if (cache.data && now - cache.fetchedAt < CACHE_TTL_MS) {
+    const cached = cache[sector];
+    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
       res.setHeader("Cache-Control", "public, max-age=300");
-      return res.status(200).json(cache.data);
+      return res.status(200).json(cached.data);
     }
 
     const response = await fetch(SOURCE_URL, {
@@ -34,9 +53,9 @@ export default async function handler(req, res) {
     }
 
     const html = await response.text();
-    const result = parseMarifoonHtml(html);
+    const result = parseMarifoonHtml(html, new Date(), sector);
 
-    cache = { data: result, fetchedAt: now };
+    cache[sector] = { data: result, fetchedAt: now };
     res.setHeader("Cache-Control", "public, max-age=300");
     return res.status(200).json(result);
   } catch (err) {
@@ -59,7 +78,7 @@ function decodeEntities(str) {
     .trim();
 }
 
-function parseMarifoonHtml(html) {
+function parseMarifoonHtml(html, nu, sector) {
   // De KNMI-pagina rendert elk district-blok als:
   //   <h2>Kop van de sectie (bijv. "Verwachting geldig van ... tot ..."):</h2>
   //   <p><i>Districtsnamen</i><br>Verwachtingstekst.</p>
@@ -67,6 +86,11 @@ function parseMarifoonHtml(html) {
   //   ...
   // We lopen door de HTML op volgorde, zodat elk <p>-blok gekoppeld blijft
   // aan de meest recente <h2>-kop erboven.
+  //
+  // Belangrijk: Texel en Harlingen hebben soms een EIGEN tekst (overdag) en
+  // soms een gedeelde tekst (bijv. 's nachts, blok "Texel Harlingen"). We
+  // filteren daarom op precies de gevraagde sector, niet op "Texel of
+  // Harlingen" samen, anders pakken we altijd de eerst gevonden van de twee.
 
   const opgesteldMatch = html.match(/Opgesteld:\s*([^<]+)</i);
   const opgesteld = opgesteldMatch ? decodeEntities(opgesteldMatch[1]) : null;
@@ -94,6 +118,7 @@ function parseMarifoonHtml(html) {
   }
   tokens.sort((a, b) => a.pos - b.pos);
 
+  const sectorRegex = new RegExp(`\\b${sector}\\b`, "i");
   let huidigeKop = "";
   const gevonden = [];
   for (const token of tokens) {
@@ -101,10 +126,7 @@ function parseMarifoonHtml(html) {
       huidigeKop = token.tekst;
       continue;
     }
-    const isOnzeSector = SECTORS.some((s) =>
-      new RegExp(`\\b${s}\\b`, "i").test(token.districten)
-    );
-    if (isOnzeSector) {
+    if (sectorRegex.test(token.districten)) {
       gevonden.push({
         periode: huidigeKop.replace(/:$/, ""),
         districten: token.districten,
@@ -119,8 +141,8 @@ function parseMarifoonHtml(html) {
 
   // Elke periode heeft de vorm "Verwachting geldig van <start> tot <eind>".
   // We parsen start/eind terug naar een Date, zodat we kunnen bepalen welke
-  // periode nu geldig is.
-  const nu = new Date();
+  // periode nu geldig is. "nu" komt als parameter binnen (testbaar, en
+  // consistent met de rest van deze functie-aanroep).
   const metTijden = alleVerwachtingen.map((v) => {
     const bereik = parsePeriodeBereik(v.periode, nu);
     return { ...v, ...bereik };
@@ -145,8 +167,11 @@ function parseMarifoonHtml(html) {
     bron: SOURCE_URL,
     opgehaaldOp: new Date().toISOString(),
     opgesteld,
-    // Alleen de verwachting die op dit moment geldig is voor Texel/Harlingen.
-    verwachtingen: huidige ? [huidige] : [],
+    sector,
+    districten: huidige ? huidige.districten : null,
+    // Alleen de kale tekst die nu geldt voor de gekozen sector, geen
+    // periode-label of andere metadata.
+    tekst: huidige ? huidige.tekst : null,
     volgendBericht,
     licentie: "Bron: KNMI (knmi.nl). Automatisch overgenomen, geen officiële distributie.",
   };
