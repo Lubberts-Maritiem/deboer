@@ -22,6 +22,7 @@ const LOCATIE_SECTOR = {
   holwerd: "harlingen",
   schiermonnikoog: "harlingen",
   lauwersoog: "harlingen",
+  delfzijl: "delfzijl",
 };
 
 // In-memory cache per sector: het bericht wisselt maar 4x per dag,

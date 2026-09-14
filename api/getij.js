@@ -20,6 +20,7 @@ const LOCATIES = {
   holwerd: { label: "Holwerd", code: "holwerd.veersteiger" },
   schiermonnikoog: { label: "Schiermonnikoog", code: "schiermonnikoog.waddenzee" },
   lauwersoog: { label: "Lauwersoog", code: "lauwersoog.waddenzee" },
+  delfzijl: { label: "Delfzijl", code: "delfzijl" },
 };
 
 // In-memory cache per locatie: getij verandert traag, geen reden om
