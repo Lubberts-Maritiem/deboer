@@ -113,17 +113,84 @@ function parseMarifoonHtml(html) {
     }
   }
 
+  const alleVerwachtingen = gevonden.filter((g) =>
+    /^verwachting geldig/i.test(g.periode)
+  );
+
+  // Elke periode heeft de vorm "Verwachting geldig van <start> tot <eind>".
+  // We parsen start/eind terug naar een Date, zodat we kunnen bepalen welke
+  // periode nu geldig is.
+  const nu = new Date();
+  const metTijden = alleVerwachtingen.map((v) => {
+    const bereik = parsePeriodeBereik(v.periode, nu);
+    return { ...v, ...bereik };
+  });
+
+  let huidige = metTijden.find(
+    (v) => v.start && v.eind && nu >= v.start && nu < v.eind
+  );
+  // Als door afronding/tijdzone geen exacte match lukt: pak de periode die
+  // net begonnen is (start in het verleden, dichtstbij).
+  if (!huidige) {
+    huidige = metTijden
+      .filter((v) => v.start && v.start <= nu)
+      .sort((a, b) => b.start - a.start)[0];
+  }
+  // Nog steeds niets (bijv. bericht net ververst): val terug op de eerste.
+  if (!huidige) {
+    huidige = metTijden[0];
+  }
+
   return {
     bron: SOURCE_URL,
     opgehaaldOp: new Date().toISOString(),
     opgesteld,
-    // Alleen de verwachtingsteksten voor Texel/Harlingen, zonder de
-    // "Waarschuwingen voor de scheepvaart"-sectie (dat is geen lopende tekst
-    // maar een losse Bft-waarde) en zonder het weeroverzicht.
-    verwachtingen: gevonden.filter((g) =>
-      /^verwachting geldig/i.test(g.periode)
-    ),
+    // Alleen de verwachting die op dit moment geldig is voor Texel/Harlingen.
+    verwachtingen: huidige ? [huidige] : [],
     volgendBericht,
     licentie: "Bron: KNMI (knmi.nl). Automatisch overgenomen, geen officiële distributie.",
   };
+}
+
+function parsePeriodeBereik(periodeTekst, referentie) {
+  // "Verwachting geldig van zaterdag 20:00 tot zondag 08:00"
+  const m = periodeTekst.match(
+    /van\s+(\w+)\s+(\d{1,2}):(\d{2})\s+tot\s+(\w+)\s+(\d{1,2}):(\d{2})/i
+  );
+  if (!m) return { start: null, eind: null };
+
+  const dagen = [
+    "zondag",
+    "maandag",
+    "dinsdag",
+    "woensdag",
+    "donderdag",
+    "vrijdag",
+    "zaterdag",
+  ];
+  const [, dagStartNaam, uStart, mStart, dagEindNaam, uEind, mEind] = m;
+
+  const naarDatum = (dagNaam, uur, minuut) => {
+    const doelDag = dagen.indexOf(dagNaam.toLowerCase());
+    if (doelDag === -1) return null;
+    // Zoek de meest recente datum (vandaag of eerder deze week terug/vooruit,
+    // max 6 dagen) die op deze weekdag valt, dicht bij "referentie".
+    const d = new Date(referentie);
+    for (let offset = -3; offset <= 3; offset++) {
+      const kandidaat = new Date(referentie);
+      kandidaat.setDate(referentie.getDate() + offset);
+      if (kandidaat.getDay() === doelDag) {
+        kandidaat.setHours(Number(uur), Number(minuut), 0, 0);
+        return kandidaat;
+      }
+    }
+    return d;
+  };
+
+  let start = naarDatum(dagStartNaam, uStart, mStart);
+  let eind = naarDatum(dagEindNaam, uEind, mEind);
+  if (start && eind && eind <= start) {
+    eind = new Date(eind.getTime() + 7 * 24 * 60 * 60 * 1000);
+  }
+  return { start, eind };
 }
