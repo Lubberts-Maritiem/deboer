@@ -99,7 +99,7 @@ async function laadAlles() {
 
   try {
     const [marifoonRes, getijRes] = await Promise.all([
-      fetch("/api/marifoon"),
+      fetch(`/api/marifoon?locatie=${encodeURIComponent(locatie)}`),
       fetch(`/api/getij?locatie=${encodeURIComponent(locatie)}`),
     ]);
     const marifoon = await marifoonRes.json();
@@ -110,18 +110,16 @@ async function laadAlles() {
     el.innerHTML = "";
     el.className = "";
 
-    if (!marifoon.verwachtingen || marifoon.verwachtingen.length === 0) {
+    if (!marifoon.tekst) {
       const p = document.createElement("p");
       p.className = "status";
       p.textContent = "Geen actueel marifoonbericht beschikbaar.";
       el.appendChild(p);
     } else {
-      for (const v of marifoon.verwachtingen) {
-        const p = document.createElement("p");
-        p.className = "bericht";
-        p.textContent = v.tekst;
-        el.appendChild(p);
-      }
+      const p = document.createElement("p");
+      p.className = "bericht";
+      p.textContent = marifoon.tekst;
+      el.appendChild(p);
     }
 
     // LW/HW-regel achteraan, voor de gekozen locatie.
