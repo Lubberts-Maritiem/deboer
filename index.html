@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Marifoonbericht. Texel &amp; Harlingen</title>
+<link rel="alternate" type="application/rss+xml" title="Marifoonbericht en getij" href="/api/rss" />
 <style>
   :root {
     --zee: #0b3d59;
@@ -17,6 +18,22 @@
     color: var(--tekst);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     line-height: 1.5;
+    min-height: 100vh;
+    box-sizing: border-box;
+  }
+  /* Foto van de haven van West-Terschelling als subtiele achtergrond:
+     vast op zijn plek, licht wazig en grotendeels doorzichtig, zodat de
+     lichtblauwe kleur erdoorheen blijft en de tekst goed leesbaar is.
+     De negatieve inset voorkomt lichte randen door de blur. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: -20px;
+    z-index: -1;
+    background: url("/achtergrond.jpg") center / cover no-repeat;
+    filter: blur(3px);
+    opacity: 0.35;
+    pointer-events: none;
   }
   main {
     max-width: 560px;
@@ -55,7 +72,7 @@
   }
   label[for="locatie"] {
     font-size: 0.9rem;
-    color: #5a6b78;
+    color: var(--tekst);
     margin-right: 0.5rem;
   }
   .acties {
@@ -85,6 +102,10 @@
     opacity: 0.5;
     cursor: default;
   }
+  #kopieer-status {
+    font-size: 0.9rem;
+    color: var(--tekst);
+  }
   .drempel {
     font-size: 0.85rem;
     color: #5a6b78;
@@ -97,10 +118,6 @@
   .drempel strong {
     color: var(--zee);
     font-weight: 600;
-  }
-  #kopieer-status {
-    font-size: 0.9rem;
-    color: #5a6b78;
   }
 </style>
 </head>
