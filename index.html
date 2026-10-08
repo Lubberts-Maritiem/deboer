@@ -114,8 +114,6 @@
     <span id="kopieer-status" role="status" aria-live="polite"></span>
   </div>
 
-  <div id="drempel" class="drempel">NAP +50 cm wordt geladen...</div>
-
   <div>
     <label for="locatie">Getij bij:</label>
     <select id="locatie">
@@ -132,6 +130,8 @@
       <option value="delfzijl">Delfzijl</option>
     </select>
   </div>
+
+  <div id="drempel" class="drempel">NAP West-Terschelling +50 cm wordt geladen...</div>
 </main>
 
 <script>
@@ -249,10 +249,13 @@ async function laadDrempel() {
   const el = document.getElementById("drempel");
   try {
     const res = await fetch("/api/drempel");
-    const d = await res.json();
-    if (!res.ok || d.error) throw new Error(d.error || res.status);
+    if (res.status === 404) throw new Error("api/drempel.js niet gevonden op de server");
+    const d = await res.json().catch(() => {
+      throw new Error(`geen JSON van /api/drempel (status ${res.status})`);
+    });
+    if (!res.ok || d.error) throw new Error(d.detail || d.error || `status ${res.status}`);
 
-    const kop = `<strong>NAP +${d.niveauCm} cm, ${d.locatie}</strong>`;
+    const kop = `<strong>NAP ${d.locatie} +${d.niveauCm} cm</strong>`;
     if (!d.komende?.length) {
       el.innerHTML = `${kop}: ${d.nuBoven ? "blijft erboven" : "wordt niet gehaald"} binnen de verwachting.`;
       return;
@@ -260,7 +263,8 @@ async function laadDrempel() {
     const delen = d.komende.map((k) => `${k.richting} ${formatTijd(k.tijdstip)}`);
     el.innerHTML = `${kop}: ${delen.join(", ")}`;
   } catch (err) {
-    el.textContent = "NAP +50 cm: verwachting niet beschikbaar.";
+    // De reden staat erbij, zodat je ziet waar het misgaat.
+    el.textContent = `NAP West-Terschelling +50 cm: niet beschikbaar (${err.message}).`;
     console.error(err);
   }
 }
