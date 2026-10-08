@@ -1,8 +1,8 @@
 // api/rss.js
 // RSS-feed met het marifoonbericht, het getij en NAP West-Terschelling +50 cm.
 //
-// Gebruik: /api/rss                 (getij bij Texel, net als de pagina)
-//          /api/rss?locatie=harlingen
+// Gebruik: /api/rss                 (getij bij Harlingen, net als de pagina)
+//          /api/rss?locatie=texel
 //
 // Dit bestand haalt niets zelf bij RWS of waddendata op. Het vraagt de drie
 // bestaande API's van je eigen site op, zodat alle logica op één plek blijft.
@@ -26,7 +26,7 @@ const LOCATIES = [
 const TIJDZONE = "Europe/Amsterdam"; // de server draait in UTC
 
 export default async function handler(req, res) {
-  const locatie = String(req.query?.locatie || "texel").toLowerCase();
+  const locatie = String(req.query?.locatie || "harlingen").toLowerCase();
   if (!LOCATIES.includes(locatie)) {
     return res.status(400).json({ error: "Onbekende locatie", geldigeOpties: LOCATIES });
   }
