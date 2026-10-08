@@ -384,7 +384,11 @@ async function laadWaterstanden() {
       reeks.appendChild(icoon);
     }
 
-    band.replaceChildren(reeks.cloneNode(true), reeks);
+    const vingerafdruk = JSON.stringify(d.locaties.map((l) => [l.naam, l.waardeCm, l.richting]));
+    if (vingerafdruk !== band.dataset.vingerafdruk) {
+      band.dataset.vingerafdruk = vingerafdruk;
+      band.replaceChildren(reeks.cloneNode(true), reeks);
+    }
     balk.hidden = false;
     // Gelijke snelheid ongeacht schermbreedte: ongeveer 50 pixels per seconde.
     requestAnimationFrame(() => {
@@ -398,12 +402,65 @@ async function laadWaterstanden() {
 }
 
 document.getElementById("kopieer").addEventListener("click", kopieerAlles);
-document.getElementById("locatie").addEventListener("change", laadAlles);
-laadAlles();
-laadDrempel();
-laadWaterstanden();
-setInterval(() => { laadAlles(); laadDrempel(); }, 15 * 60 * 1000);
-setInterval(laadWaterstanden, 10 * 60 * 1000); // waddendata ververst per 10 minuten // elke 15 minuten verversen
+// ---------- Automatisch verversen ----------
+// Gegevens: elke 10 minuten, zonder de pagina te herladen. Dat is het ritme
+// waarin waddendata en onze API-cache vernieuwen; vaker heeft geen zin.
+// Browsers vertragen timers in een tabblad op de achtergrond of tijdens
+// slaapstand. Daarom verversen we ook meteen als je terugkomt op de pagina
+// en de laatste keer langer dan 2 minuten geleden is.
+// Daarnaast herlaadt de hele pagina eens per 6 uur, zodat een nieuwe versie
+// van je site vanzelf binnenkomt op een scherm dat dag en nacht openstaat.
+// De gekozen locatie blijft daarbij bewaard.
+
+const VERVERS_MS = 10 * 60 * 1000;
+const TERUGKOMST_MS = 2 * 60 * 1000;
+const HERLAAD_MS = 6 * 60 * 60 * 1000;
+const geladenOp = Date.now();
+let laatsteVerversing = 0;
+
+function ververs() {
+  laatsteVerversing = Date.now();
+  laadAlles();
+  laadDrempel();
+  laadWaterstanden();
+}
+
+function bewaarLocatie() {
+  try { localStorage.setItem("getijLocatie", document.getElementById("locatie").value); } catch {}
+}
+
+function herstelLocatie() {
+  try {
+    const opgeslagen = localStorage.getItem("getijLocatie");
+    const select = document.getElementById("locatie");
+    if (opgeslagen && [...select.options].some((o) => o.value === opgeslagen)) {
+      select.value = opgeslagen;
+    }
+  } catch {}
+}
+
+document.getElementById("locatie").addEventListener("change", () => {
+  bewaarLocatie();
+  laadAlles();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  if (Date.now() - geladenOp > HERLAAD_MS) return location.reload();
+  if (Date.now() - laatsteVerversing > TERUGKOMST_MS) ververs();
+});
+
+setInterval(() => {
+  // Volledig herladen alleen als de pagina zichtbaar is; anders gebeurt het
+  // bij terugkomst via visibilitychange.
+  if (Date.now() - geladenOp > HERLAAD_MS && document.visibilityState === "visible") {
+    return location.reload();
+  }
+  ververs();
+}, VERVERS_MS);
+
+herstelLocatie();
+ververs();
 </script>
 </body>
 </html>
