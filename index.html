@@ -119,6 +119,56 @@
     color: var(--zee);
     font-weight: 600;
   }
+  .ticker {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: #024f92; /* het blauw uit het beeldmerk van De Boer */
+    color: white;
+    font-size: 0.9rem;
+    overflow: hidden;
+    white-space: nowrap;
+    padding: 0.5rem 0;
+  }
+  .ticker-band {
+    display: inline-flex;
+    align-items: center;
+    animation: rol var(--duur, 60s) linear infinite;
+  }
+  .ticker:hover .ticker-band {
+    animation-play-state: paused;
+  }
+  .ticker-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .ticker-item b {
+    font-weight: 600;
+  }
+  .ticker-item .pijl {
+    color: #9fd3ec;
+    font-size: 0.75rem;
+  }
+  .ticker-item .geen {
+    color: #b9cdd8;
+  }
+  .ticker-icoon {
+    height: 0.8rem;
+    width: auto;
+    margin: 0 1.8rem;
+    vertical-align: middle;
+  }
+  @keyframes rol {
+    to { transform: translateX(-50%); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ticker { overflow-x: auto; }
+    .ticker-band { animation: none; }
+  }
+  /* Ruimte onderaan, zodat de balk geen inhoud bedekt. */
+  body { padding-bottom: 4rem; }
 </style>
 </head>
 <body>
@@ -150,6 +200,10 @@
 
   <div id="drempel" class="drempel">NAP West-Terschelling +50 cm wordt geladen...</div>
 </main>
+
+<div class="ticker" id="ticker" role="region" aria-label="Actuele waterstanden" hidden>
+  <div class="ticker-band" id="ticker-band"></div>
+</div>
 
 <script>
 function formatTijd(iso) {
@@ -286,11 +340,70 @@ async function laadDrempel() {
   }
 }
 
+async function laadWaterstanden() {
+  // Rollende balk onderaan met de gemeten standen van waddendata.
+  // De inhoud staat er twee keer in, zodat de lus naadloos doorloopt.
+  const balk = document.getElementById("ticker");
+  const band = document.getElementById("ticker-band");
+  try {
+    const res = await fetch("/api/waterstanden");
+    const d = await res.json();
+    if (!res.ok || d.error || !d.locaties?.length) throw new Error(d.detail || d.error || res.status);
+
+    const reeks = document.createDocumentFragment();
+    for (const l of d.locaties) {
+      const item = document.createElement("span");
+      item.className = "ticker-item";
+      const naam = document.createElement("b");
+      naam.textContent = l.naam;
+      item.appendChild(naam);
+
+      const stand = document.createElement("span");
+      if (l.waardeCm == null) {
+        stand.className = "geen";
+        stand.textContent = "geen meting";
+      } else {
+        const teken = l.waardeCm > 0 ? "+" : l.waardeCm < 0 ? "\u2212" : "";
+        stand.textContent = `${teken}${Math.abs(l.waardeCm)} cm`;
+      }
+      item.appendChild(stand);
+
+      if (l.waardeCm != null && l.richting) {
+        const pijl = document.createElement("span");
+        pijl.className = "pijl";
+        pijl.textContent = l.richting === "stijgend" ? "\u25B2" : "\u25BC";
+        pijl.title = l.richting;
+        item.appendChild(pijl);
+      }
+      reeks.appendChild(item);
+
+      const icoon = document.createElement("img");
+      icoon.className = "ticker-icoon";
+      icoon.src = "https://www.dutchdredging.nl/media/beeldmerk/small/50x50/beeldmerk.png";
+      icoon.alt = "";
+      reeks.appendChild(icoon);
+    }
+
+    band.replaceChildren(reeks.cloneNode(true), reeks);
+    balk.hidden = false;
+    // Gelijke snelheid ongeacht schermbreedte: ongeveer 50 pixels per seconde.
+    requestAnimationFrame(() => {
+      band.style.setProperty("--duur", `${Math.max(20, band.scrollWidth / 2 / 50)}s`);
+    });
+  } catch (err) {
+    // Liever geen balk dan een lege of verouderde balk.
+    balk.hidden = true;
+    console.error("Waterstanden niet beschikbaar:", err);
+  }
+}
+
 document.getElementById("kopieer").addEventListener("click", kopieerAlles);
 document.getElementById("locatie").addEventListener("change", laadAlles);
 laadAlles();
 laadDrempel();
-setInterval(() => { laadAlles(); laadDrempel(); }, 15 * 60 * 1000); // elke 15 minuten verversen
+laadWaterstanden();
+setInterval(() => { laadAlles(); laadDrempel(); }, 15 * 60 * 1000);
+setInterval(laadWaterstanden, 10 * 60 * 1000); // waddendata ververst per 10 minuten // elke 15 minuten verversen
 </script>
 </body>
 </html>
