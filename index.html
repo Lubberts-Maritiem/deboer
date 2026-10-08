@@ -8,6 +8,58 @@
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 <link rel="alternate" type="application/rss+xml" title="Marifoonbericht en getij" href="/api/rss" />
+<script>
+// ---------- Dag- en nachtweergave ----------
+// Standaard automatisch: overdag de gewone weergave, na zonsondergang de
+// donkere. Met het knopje rechtsboven kies je zelf: auto, dag, nacht of
+// rood (brugscherm, spaart je nachtzicht). De keuze wordt onthouden.
+// Zon op en onder worden berekend voor de westelijke Waddenzee.
+const ZON_LAT = 53.17;
+const ZON_LON = 5.3;
+
+function zonTijden(datum, lat, lon) {
+  // "Sunrise equation" (NOAA-benadering), nauwkeurig op een minuut of twee.
+  const rad = Math.PI / 180;
+  const dagMs = 86400000;
+  const J = datum.getTime() / dagMs + 2440587.5;
+  const n = Math.round(J - 2451545.0 + 0.0008 - lon / 360);
+  const Js = n - lon / 360;
+  const M = (357.5291 + 0.98560028 * Js) % 360;
+  const C = 1.9148 * Math.sin(M * rad) + 0.02 * Math.sin(2 * M * rad) + 0.0003 * Math.sin(3 * M * rad);
+  const L = (M + C + 180 + 102.9372) % 360;
+  const Jt = 2451545.0 + Js + 0.0053 * Math.sin(M * rad) - 0.0069 * Math.sin(2 * L * rad);
+  const sinD = Math.sin(L * rad) * Math.sin(23.4397 * rad);
+  const cosD = Math.cos(Math.asin(sinD));
+  const cosW = (Math.sin(-0.833 * rad) - Math.sin(lat * rad) * sinD) / (Math.cos(lat * rad) * cosD);
+  const W = Math.acos(Math.min(1, Math.max(-1, cosW))) / rad;
+  const naarDate = (j) => new Date((j - 2440587.5) * dagMs);
+  return { op: naarDate(Jt - W / 360), onder: naarDate(Jt + W / 360) };
+}
+
+function isNacht(nu = new Date()) {
+  // Rekenen vanaf 12:00 UTC op de Nederlandse kalenderdag. Anders valt een
+  // tijdstip vroeg in de ochtend in de berekening van de volgende dag.
+  const [j, m, d] = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Amsterdam", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(nu).split("-").map(Number);
+  const { op, onder } = zonTijden(new Date(Date.UTC(j, m - 1, d, 12)), ZON_LAT, ZON_LON);
+  return nu < op || nu >= onder;
+}
+
+function leesThemaKeuze() {
+  try { return localStorage.getItem("thema") || "auto"; } catch { return "auto"; }
+}
+
+function pasThemaToe() {
+  const keuze = leesThemaKeuze();
+  const thema = keuze === "auto" ? (isNacht() ? "nacht" : "dag") : keuze;
+  document.documentElement.dataset.thema = thema;
+  document.documentElement.dataset.themaKeuze = keuze;
+  return { keuze, thema };
+}
+
+pasThemaToe();
+</script>
 <style>
   :root {
     --zee: #0b3d59;
@@ -172,11 +224,79 @@
   }
   /* Ruimte onderaan, zodat de balk geen inhoud bedekt. */
   body { padding-bottom: 4rem; }
+  .kopregel {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+  }
+  .kopregel select#locatie {
+    margin-bottom: 0;
+  }
+  button#thema {
+    font: inherit;
+    font-size: 0.8rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid #b9cdd8;
+    background: rgba(255, 255, 255, 0.6);
+    color: #5a6b78;
+    cursor: pointer;
+  }
+  button#thema:hover {
+    border-color: var(--zee);
+    color: var(--zee);
+  }
+  button#thema:focus-visible {
+    outline: 3px solid #7fb3cc;
+    outline-offset: 2px;
+  }
+
+  /* ---------- Nachtweergave: donkerblauw ---------- */
+  [data-thema="nacht"] body { background: #0a1620; color: #d6e2ea; }
+  [data-thema="nacht"] body::before { opacity: 0.18; filter: blur(3px) brightness(0.55); }
+  [data-thema="nacht"] .bericht { background: #13263a; box-shadow: none; color: #d6e2ea; }
+  [data-thema="nacht"] .getij-regel { color: #8cc4e6; }
+  [data-thema="nacht"] .status,
+  [data-thema="nacht"] label[for="locatie"],
+  [data-thema="nacht"] #kopieer-status { color: #9fb3c2; }
+  [data-thema="nacht"] select#locatie { background: #13263a; color: #d6e2ea; border-color: #2b4560; }
+  [data-thema="nacht"] button#kopieer { background: #1f5f8b; border-color: #1f5f8b; }
+  [data-thema="nacht"] button#kopieer:hover:not(:disabled) { background: #2a73a6; }
+  [data-thema="nacht"] .drempel { background: #13263a; color: #9fb3c2; border-left-color: #8cc4e6; }
+  [data-thema="nacht"] .drempel strong { color: #8cc4e6; }
+  [data-thema="nacht"] .ticker { background: #012a4f; }
+  [data-thema="nacht"] .ticker-icoon { opacity: 0.75; }
+  [data-thema="nacht"] button#thema { background: transparent; border-color: #2b4560; color: #9fb3c2; }
+
+  /* ---------- Rood brugscherm: spaart het nachtzicht ---------- */
+  [data-thema="rood"] body { background: #000; color: #c42a1a; }
+  [data-thema="rood"] body::before { display: none; }
+  [data-thema="rood"] .bericht { background: #120303; box-shadow: none; color: #c42a1a; border: 1px solid #2a0705; }
+  [data-thema="rood"] .getij-regel { color: #e0321f; }
+  [data-thema="rood"] .status,
+  [data-thema="rood"] label[for="locatie"],
+  [data-thema="rood"] #kopieer-status { color: #8f1e12; }
+  [data-thema="rood"] select#locatie { background: #120303; color: #c42a1a; border-color: #3a0a06; }
+  [data-thema="rood"] button#kopieer { background: #3a0a06; border-color: #5a1009; color: #e0321f; }
+  [data-thema="rood"] button#kopieer:hover:not(:disabled) { background: #4a0d07; }
+  [data-thema="rood"] .drempel { background: #120303; color: #8f1e12; border-left-color: #c42a1a; }
+  [data-thema="rood"] .drempel strong { color: #c42a1a; }
+  [data-thema="rood"] .ticker { background: #140404; color: #c42a1a; }
+  [data-thema="rood"] .ticker-item .pijl,
+  [data-thema="rood"] .ticker-item .geen { color: #8f1e12; }
+  [data-thema="rood"] .ticker-icoon { filter: grayscale(1) sepia(1) saturate(6) hue-rotate(-30deg) brightness(0.55); }
+  [data-thema="rood"] button#thema { background: transparent; border-color: #3a0a06; color: #8f1e12; }
+  [data-thema="rood"] button#kopieer:focus-visible,
+  [data-thema="rood"] button#thema:focus-visible { outline-color: #8f1e12; }
 </style>
 </head>
 <body>
 <main>
-  <div>
+  <div class="kopregel">
+    <div>
     <label for="locatie">Meetlocatie:</label>
     <select id="locatie">
       <option value="denhelder">Den Helder</option>
@@ -191,6 +311,8 @@
       <option value="lauwersoog">Lauwersoog</option>
       <option value="delfzijl">Delfzijl</option>
     </select>
+    </div>
+    <button id="thema" type="button" aria-live="polite">Auto</button>
   </div>
 
   <div id="inhoud" class="status">Bezig met laden...</div>
@@ -405,6 +527,28 @@ async function laadWaterstanden() {
 }
 
 document.getElementById("kopieer").addEventListener("click", kopieerAlles);
+// ---------- Themaknop ----------
+const THEMA_VOLGORDE = ["auto", "dag", "nacht", "rood"];
+const THEMA_LABEL = { dag: "\u2600 Dag", nacht: "\u263E Nacht", rood: "\u25CF Rood brug" };
+
+function toonThemaKnop() {
+  const { keuze, thema } = pasThemaToe();
+  const knop = document.getElementById("thema");
+  knop.textContent = keuze === "auto" ? `Auto \u00B7 ${thema === "nacht" ? "nacht" : "dag"}` : THEMA_LABEL[keuze];
+  knop.title = "Wissel tussen automatisch, dag, nacht en rood brugscherm";
+}
+
+document.getElementById("thema").addEventListener("click", () => {
+  const huidig = leesThemaKeuze();
+  const volgende = THEMA_VOLGORDE[(THEMA_VOLGORDE.indexOf(huidig) + 1) % THEMA_VOLGORDE.length];
+  try { localStorage.setItem("thema", volgende); } catch {}
+  toonThemaKnop();
+});
+
+// Elke minuut controleren, zodat de wissel op zon op en zon onder gebeurt.
+setInterval(toonThemaKnop, 60 * 1000);
+toonThemaKnop();
+
 // ---------- Automatisch verversen ----------
 // Gegevens: elke 10 minuten, zonder de pagina te herladen. Dat is het ritme
 // waarin waddendata en onze API-cache vernieuwen; vaker heeft geen zin.
