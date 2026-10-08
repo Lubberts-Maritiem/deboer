@@ -85,6 +85,19 @@
     opacity: 0.5;
     cursor: default;
   }
+  .drempel {
+    font-size: 0.85rem;
+    color: #5a6b78;
+    background: white;
+    border-left: 3px solid var(--zee);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 1rem;
+  }
+  .drempel strong {
+    color: var(--zee);
+    font-weight: 600;
+  }
   #kopieer-status {
     font-size: 0.9rem;
     color: #5a6b78;
@@ -100,6 +113,8 @@
     <button id="kopieer" type="button" disabled>Kopieer bericht en getij</button>
     <span id="kopieer-status" role="status" aria-live="polite"></span>
   </div>
+
+  <div id="drempel" class="drempel">NAP +50 cm wordt geladen...</div>
 
   <div>
     <label for="locatie">Getij bij:</label>
@@ -228,10 +243,33 @@ async function kopieerAlles() {
   kopieerAlles.timer = setTimeout(() => (status.textContent = ""), 2500);
 }
 
+async function laadDrempel() {
+  // Klein los element: wanneer West-Terschelling door NAP +50 cm gaat.
+  // Staat los van de locatiekeuze en van de rest van de pagina.
+  const el = document.getElementById("drempel");
+  try {
+    const res = await fetch("/api/drempel");
+    const d = await res.json();
+    if (!res.ok || d.error) throw new Error(d.error || res.status);
+
+    const kop = `<strong>NAP +${d.niveauCm} cm, ${d.locatie}</strong>`;
+    if (!d.komende?.length) {
+      el.innerHTML = `${kop}: ${d.nuBoven ? "blijft erboven" : "wordt niet gehaald"} binnen de verwachting.`;
+      return;
+    }
+    const delen = d.komende.map((k) => `${k.richting} ${formatTijd(k.tijdstip)}`);
+    el.innerHTML = `${kop}: ${delen.join(", ")}`;
+  } catch (err) {
+    el.textContent = "NAP +50 cm: verwachting niet beschikbaar.";
+    console.error(err);
+  }
+}
+
 document.getElementById("kopieer").addEventListener("click", kopieerAlles);
 document.getElementById("locatie").addEventListener("change", laadAlles);
 laadAlles();
-setInterval(laadAlles, 15 * 60 * 1000); // elke 15 minuten verversen
+laadDrempel();
+setInterval(() => { laadAlles(); laadDrempel(); }, 15 * 60 * 1000); // elke 15 minuten verversen
 </script>
 </body>
 </html>
