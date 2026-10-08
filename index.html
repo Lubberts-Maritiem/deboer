@@ -173,21 +173,13 @@
 </head>
 <body>
 <main>
-  <h1>Marifoonbericht, sector Texel &amp; Harlingen</h1>
-  <div id="inhoud" class="status">Bezig met laden...</div>
-
-  <div class="acties">
-    <button id="kopieer" type="button" disabled>Kopieer bericht en getij</button>
-    <span id="kopieer-status" role="status" aria-live="polite"></span>
-  </div>
-
   <div>
-    <label for="locatie">Getij bij:</label>
+    <label for="locatie">Meetlocatie:</label>
     <select id="locatie">
       <option value="denhelder">Den Helder</option>
       <option value="denoever">Den Oever</option>
-      <option value="texel" selected>Texel</option>
-      <option value="harlingen">Harlingen</option>
+      <option value="texel">Texel</option>
+      <option value="harlingen" selected>Harlingen</option>
       <option value="vlieland">Vlieland</option>
       <option value="terschelling">Terschelling</option>
       <option value="ameland">Ameland</option>
@@ -197,6 +189,14 @@
       <option value="delfzijl">Delfzijl</option>
     </select>
   </div>
+
+  <div id="inhoud" class="status">Bezig met laden...</div>
+
+  <div class="acties">
+    <button id="kopieer" type="button" disabled>Kopieer bericht en getij</button>
+    <span id="kopieer-status" role="status" aria-live="polite"></span>
+  </div>
+
 
   <div id="drempel" class="drempel">NAP West-Terschelling +50 cm wordt geladen...</div>
 </main>
@@ -408,13 +408,13 @@ document.getElementById("kopieer").addEventListener("click", kopieerAlles);
 // Browsers vertragen timers in een tabblad op de achtergrond of tijdens
 // slaapstand. Daarom verversen we ook meteen als je terugkomt op de pagina
 // en de laatste keer langer dan 2 minuten geleden is.
-// Daarnaast herlaadt de hele pagina eens per 6 uur, zodat een nieuwe versie
+// Daarnaast herlaadt de hele pagina elke 10 minuten, zodat een nieuwe versie
 // van je site vanzelf binnenkomt op een scherm dat dag en nacht openstaat.
 // De gekozen locatie blijft daarbij bewaard.
 
 const VERVERS_MS = 10 * 60 * 1000;
 const TERUGKOMST_MS = 2 * 60 * 1000;
-const HERLAAD_MS = 6 * 60 * 60 * 1000;
+const HERLAAD_MS = 10 * 60 * 1000 - 30 * 1000; // 10 minuten, met een halve minuut marge voor timers die net te vroeg afgaan
 const geladenOp = Date.now();
 let laatsteVerversing = 0;
 
