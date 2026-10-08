@@ -58,12 +58,48 @@
     color: #5a6b78;
     margin-right: 0.5rem;
   }
+  .acties {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  button#kopieer {
+    font: inherit;
+    font-size: 0.95rem;
+    padding: 0.45rem 0.9rem;
+    border-radius: 6px;
+    border: 1px solid var(--zee);
+    background: var(--zee);
+    color: white;
+    cursor: pointer;
+  }
+  button#kopieer:hover:not(:disabled) {
+    background: #145a80;
+  }
+  button#kopieer:focus-visible {
+    outline: 3px solid #7fb3cc;
+    outline-offset: 2px;
+  }
+  button#kopieer:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  #kopieer-status {
+    font-size: 0.9rem;
+    color: #5a6b78;
+  }
 </style>
 </head>
 <body>
 <main>
   <h1>Marifoonbericht, sector Texel &amp; Harlingen</h1>
   <div id="inhoud" class="status">Bezig met laden...</div>
+
+  <div class="acties">
+    <button id="kopieer" type="button" disabled>Kopieer bericht en getij</button>
+    <span id="kopieer-status" role="status" aria-live="polite"></span>
+  </div>
 
   <div>
     <label for="locatie">Getij bij:</label>
@@ -92,6 +128,13 @@ function formatTijd(iso) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatCm(cm) {
+  // Verwachte hoogte t.o.v. NAP, met teken. Leeg als er geen waarde is.
+  if (cm == null || !Number.isFinite(cm)) return "";
+  const teken = cm > 0 ? "+" : cm < 0 ? "\u2212" : "";
+  return ` (${teken}${Math.abs(cm)} cm)`;
 }
 
 async function laadAlles() {
@@ -123,24 +166,69 @@ async function laadAlles() {
       el.appendChild(p);
     }
 
-    // LW/HW-regel achteraan, voor de gekozen locatie.
+    // Getijregel achteraan, voor de gekozen locatie. De eerstvolgende twee
+    // extremen in de volgorde waarin ze komen: soms LW dan HW, soms andersom.
     const getijP = document.createElement("p");
     getijP.className = "bericht getij-regel";
     if (getij.error) {
       getijP.textContent = "Getijgegevens niet beschikbaar.";
     } else {
-      const lw = formatTijd(getij.volgendLaagwater?.tijdstip);
-      const hw = formatTijd(getij.volgendHoogwater?.tijdstip);
-      getijP.textContent = `${getij.locatie}, LW: ${lw}, HW: ${hw}`;
+      const komende = getij.komende?.length
+        ? getij.komende
+        : [getij.volgendLaagwater, getij.volgendHoogwater]
+            .filter(Boolean)
+            .sort((a, b) => new Date(a.tijdstip) - new Date(b.tijdstip));
+      const delen = komende.map((e) => {
+        const label = e.type === "hoogwater" ? "HW" : "LW";
+        return `${label}: ${formatTijd(e.tijdstip)}${formatCm(e.waardeCm)}`;
+      });
+      getijP.textContent = delen.length
+        ? `${getij.locatie}, ${delen.join(", ")}`
+        : `${getij.locatie}, geen komende getijden bekend.`;
     }
     el.appendChild(getijP);
+    document.getElementById("kopieer").disabled = false;
   } catch (err) {
+    document.getElementById("kopieer").disabled = true;
     el.className = "status";
     el.textContent = "Kon de gegevens niet ophalen.";
     console.error(err);
   }
 }
 
+async function kopieerAlles() {
+  // Marifoonbericht en getijregel in één keer, gescheiden door een witregel.
+  const status = document.getElementById("kopieer-status");
+  const regels = [...document.querySelectorAll("#inhoud p")]
+    .map((p) => p.textContent.trim())
+    .filter(Boolean);
+  if (!regels.length) return;
+  const tekst = regels.join("\n\n");
+
+  try {
+    await navigator.clipboard.writeText(tekst);
+  } catch {
+    // Terugval voor browsers of pagina's zonder Clipboard API (bijv. http).
+    const veld = document.createElement("textarea");
+    veld.value = tekst;
+    veld.setAttribute("readonly", "");
+    veld.style.position = "fixed";
+    veld.style.opacity = "0";
+    document.body.appendChild(veld);
+    veld.select();
+    const gelukt = document.execCommand("copy");
+    veld.remove();
+    if (!gelukt) {
+      status.textContent = "Kopiëren lukte niet. Selecteer de tekst handmatig.";
+      return;
+    }
+  }
+  status.textContent = "Gekopieerd";
+  clearTimeout(kopieerAlles.timer);
+  kopieerAlles.timer = setTimeout(() => (status.textContent = ""), 2500);
+}
+
+document.getElementById("kopieer").addEventListener("click", kopieerAlles);
 document.getElementById("locatie").addEventListener("change", laadAlles);
 laadAlles();
 setInterval(laadAlles, 15 * 60 * 1000); // elke 15 minuten verversen

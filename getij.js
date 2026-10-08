@@ -13,6 +13,14 @@
 // We nemen de verwachting waar die er is, en vallen daarbuiten terug op
 // astronomisch. Elk extreem draagt zijn eigen bronvermelding.
 //
+// Sinds 8 oktober 2026 is waddendata.nl de primaire bron voor de verwachte
+// extremen. Die site levert per locatie zo'n 7 dagen HW/LW met zowel het
+// astronomische als het verwachte tijdstip en de hoogte, via een WebSocket
+// (wss://data.waddendata.nl) die bij verbinden één JSON-snapshot stuurt met
+// alle locaties. Voor locaties die waddendata niet kent (Den Oever, Texel,
+// Schiermonnikoog), of als waddendata niet bereikbaar is, valt dit bestand
+// terug op de oude route: RWS astronomisch plus de waterinfo-verwachting.
+//
 // Belangrijk detail, getest 15 september 2026:
 //   - Groepering GETETBRKD2 zonder Grootheid geeft het TYPE ("hoogwater"/"laagwater"),
 //     met Waarde_Numeriek 0 en eenheid "dimensieloos".
@@ -28,17 +36,19 @@ const RWS_URL =
   "https://ddapi20-waterwebservices.rijkswaterstaat.nl/ONLINEWAARNEMINGENSERVICES/OphalenWaarnemingen";
 
 const LOCATIES = {
-  denhelder: { label: "Den Helder", code: "denhelder.marsdiep" },
+  // waddendata: de naam zoals die in het Tides-object van waddendata.nl staat.
+  // Ontbreekt die, dan kent waddendata de locatie niet en gebruiken we RWS.
+  denhelder: { label: "Den Helder", code: "denhelder.marsdiep", waddendata: "Den Helder" },
   denoever: { label: "Den Oever", code: "denoever.waddenzee.voorhaven" },
   texel: { label: "Texel", code: "texel.oudeschild" },
-  harlingen: { label: "Harlingen", code: "harlingen.waddenzee" },
-  vlieland: { label: "Vlieland", code: "vlieland.haven" },
-  terschelling: { label: "West-Terschelling", code: "terschelling.west" },
-  ameland: { label: "Ameland", code: "ameland.nes" },
-  holwerd: { label: "Holwerd", code: "holwerd.veersteiger" },
+  harlingen: { label: "Harlingen", code: "harlingen.waddenzee", waddendata: "Harlingen" },
+  vlieland: { label: "Vlieland", code: "vlieland.haven", waddendata: "Vlieland" },
+  terschelling: { label: "West-Terschelling", code: "terschelling.west", waddendata: "West-Terschelling" },
+  ameland: { label: "Ameland", code: "ameland.nes", waddendata: "Nes Ameland" },
+  holwerd: { label: "Holwerd", code: "holwerd.veersteiger", waddendata: "Holwerd" },
   schiermonnikoog: { label: "Schiermonnikoog", code: "schiermonnikoog.waddenzee" },
-  lauwersoog: { label: "Lauwersoog", code: "lauwersoog.waddenzee" },
-  delfzijl: { label: "Delfzijl", code: "delfzijl" },
+  lauwersoog: { label: "Lauwersoog", code: "lauwersoog.waddenzee", waddendata: "Lauwersoog" },
+  delfzijl: { label: "Delfzijl", code: "delfzijl", waddendata: "Delfzijl" },
 };
 
 // In-memory cache per locatie: getij verandert traag, geen reden om
@@ -65,64 +75,28 @@ export default async function handler(req, res) {
       return res.status(200).json(cached.data);
     }
 
-    const periodeGetij = {
-      Begindatumtijd: toRwsTijd(new Date(now - 12 * 60 * 60 * 1000)),
-      Einddatumtijd: toRwsTijd(new Date(now + 96 * 60 * 60 * 1000)), // 4 dagen vooruit
-    };
     const periodeStand = {
       Begindatumtijd: toRwsTijd(new Date(now - 2 * 60 * 60 * 1000)),
       Einddatumtijd: toRwsTijd(new Date(now)),
     };
 
-    // Drie aanroepen parallel: type van de extremen, hoogte van de extremen,
-    // en de actueel gemeten waterstand.
-    const [typen, hoogtes, standen] = await Promise.all([
-      haalMetingen(locatie.code, { Groepering: { Code: "GETETBRKD2" } }, periodeGetij),
-      haalMetingen(
-        locatie.code,
-        {
-          Grootheid: { Code: "WATHTE" },
-          Groepering: { Code: "GETETBRKD2" },
-          Hoedanigheid: { Code: "NAP" },
-        },
-        periodeGetij
-      ),
+    // Extremen en actuele stand parallel. De gemeten stand is nice-to-have.
+    const [extremenResultaat, standen] = await Promise.all([
+      haalExtremen(locatie, now),
       haalMetingen(
         locatie.code,
         { Grootheid: { Code: "WATHTE" }, Hoedanigheid: { Code: "NAP" } },
         periodeStand
-      ).catch(() => []), // gemeten stand is nice-to-have, mag falen
+      ).catch(() => []),
     ]);
-
-    // Hoogtes per tijdstip, zodat we ze aan het juiste extreem kunnen koppelen.
-    const hoogtePerTijd = new Map();
-    for (const m of hoogtes) {
-      const w = m.Meetwaarde?.Waarde_Numeriek;
-      if (m.Tijdstip && typeof w === "number") hoogtePerTijd.set(m.Tijdstip, Math.round(w));
-    }
-
-    const extremen = typen
-      .map((m) => ({
-        tijdstip: m.Tijdstip,
-        type: m.Meetwaarde?.Waarde_Alfanumeriek, // "hoogwater" | "laagwater"
-        waardeCm: hoogtePerTijd.has(m.Tijdstip) ? hoogtePerTijd.get(m.Tijdstip) : null,
-        astronomischCm: hoogtePerTijd.has(m.Tijdstip) ? hoogtePerTijd.get(m.Tijdstip) : null,
-        bron: "astronomisch",
-        verschilCm: 0,
-      }))
-      .filter((m) => m.tijdstip && m.type)
-      .sort((a, b) => new Date(a.tijdstip) - new Date(b.tijdstip));
-
-    // Verwachte extremen uit het RWS-stromingsmodel eroverheen leggen.
-    const verwachteExtremen = await haalVerwachting(locatie.code).catch((e) => {
-      console.warn("Verwachting niet beschikbaar:", e.message);
-      return [];
-    });
-    voegVerwachtingSamen(extremen, verwachteExtremen);
+    const { extremen, bronNaam } = extremenResultaat;
 
     const toekomstig = extremen.filter((m) => new Date(m.tijdstip).getTime() >= now);
     const volgendLaagwater = toekomstig.find((m) => m.type === "laagwater") || null;
     const volgendHoogwater = toekomstig.find((m) => m.type === "hoogwater") || null;
+    // De eerstvolgende twee extremen in de volgorde waarin ze echt komen.
+    // Soms is dat LW dan HW, soms HW dan LW. De interface toont ze zo.
+    const komende = toekomstig.slice(0, 2);
 
     // Laatste geldige meting van de actuele stand.
     let actueel = null;
@@ -142,6 +116,7 @@ export default async function handler(req, res) {
       extremen,
       volgendLaagwater,
       volgendHoogwater,
+      komende,
       actueel,
       // Hoeveel van de getoonde extremen uit de verwachting komen. Handig om
       // in de interface te melden welke bron er nu eigenlijk op het scherm staat.
@@ -149,7 +124,11 @@ export default async function handler(req, res) {
         verwacht: extremen.filter((e) => e.bron === "verwacht").length,
         astronomisch: extremen.filter((e) => e.bron === "astronomisch").length,
       },
-      licentie: "Bron: Rijkswaterstaat WaterWebservices (CC0), astronomisch getij.",
+      bronNaam,
+      licentie:
+        bronNaam === "waddendata"
+          ? "Getij: waddendata.nl (data Rijkswaterstaat). Actuele stand: RWS WaterWebservices (CC0)."
+          : "Getij: Rijkswaterstaat WaterWebservices (CC0) en waterinfo.rws.nl.",
     };
 
     cache[locatieKey] = { data: result, fetchedAt: now };
@@ -162,6 +141,180 @@ export default async function handler(req, res) {
       detail: String(err.message || err),
     });
   }
+}
+
+async function haalExtremen(locatie, now) {
+  // Eerst waddendata. Lukt dat niet, of kent waddendata deze locatie niet,
+  // dan de oude RWS-route.
+  if (locatie.waddendata) {
+    try {
+      const extremen = await extremenUitWaddendata(locatie.waddendata);
+      if (extremen.length) return { extremen, bronNaam: "waddendata" };
+      console.warn(`waddendata gaf geen extremen voor ${locatie.waddendata}`);
+    } catch (e) {
+      console.warn("waddendata niet beschikbaar, terugval op RWS:", e.message);
+    }
+  }
+  return { extremen: await extremenUitRws(locatie.code, now), bronNaam: "rws" };
+}
+
+// ---------- waddendata.nl ----------
+
+const WADDENDATA_WS = "wss://data.waddendata.nl";
+const WADDENDATA_TTL_MS = 10 * 60 * 1000;
+const WADDENDATA_TIMEOUT_MS = 8000;
+// Eén snapshot bevat alle locaties, dus één gedeelde cache. De lopende
+// promise bewaren we ook, zodat gelijktijdige verzoeken één verbinding delen.
+let waddendataCache = null; // { tides, fetchedAt }
+let waddendataBezig = null;
+
+async function haalWaddendataTides() {
+  if (waddendataCache && Date.now() - waddendataCache.fetchedAt < WADDENDATA_TTL_MS) {
+    return waddendataCache.tides;
+  }
+  if (!waddendataBezig) {
+    waddendataBezig = leesWaddendataSnapshot()
+      .then((snapshot) => {
+        if (!snapshot?.Tides || typeof snapshot.Tides !== "object") {
+          throw new Error("snapshot zonder Tides");
+        }
+        waddendataCache = { tides: snapshot.Tides, fetchedAt: Date.now() };
+        return snapshot.Tides;
+      })
+      .finally(() => { waddendataBezig = null; });
+  }
+  return waddendataBezig;
+}
+
+async function leesWaddendataSnapshot() {
+  // Node 22+ heeft WebSocket ingebouwd. Op oudere Node proberen we het
+  // pakket "ws"; ontbreekt dat ook, dan faalt dit netjes en valt de
+  // handler terug op RWS.
+  const WS = globalThis.WebSocket ?? (await import("ws")).default;
+
+  return new Promise((resolve, reject) => {
+    // Zonder Origin-header weigert waddendata de verbinding (getest 8 okt 2026).
+    // Zowel de ingebouwde WebSocket van Node (undici) als het pakket "ws"
+    // accepteren headers als tweede argument.
+    const ws = new WS(WADDENDATA_WS, {
+      headers: {
+        Origin: "https://waddendata.nl",
+        "User-Agent": "wadoversteken.nl getij-widget (contact via wadoversteken.nl)",
+      },
+    });
+    const klaar = (fout, data) => {
+      clearTimeout(timer);
+      try { ws.close(); } catch {}
+      fout ? reject(fout) : resolve(data);
+    };
+    const timer = setTimeout(
+      () => klaar(new Error("waddendata gaf geen antwoord binnen 8 s")),
+      WADDENDATA_TIMEOUT_MS
+    );
+    ws.onmessage = (bericht) => {
+      try {
+        klaar(null, JSON.parse(typeof bericht.data === "string" ? bericht.data : String(bericht.data)));
+      } catch (e) {
+        klaar(new Error("waddendata stuurde geen geldige JSON"));
+      }
+    };
+    ws.onerror = () => klaar(new Error("waddendata WebSocket-fout"));
+  });
+}
+
+async function extremenUitWaddendata(naam) {
+  const tides = await haalWaddendataTides();
+  const rij = tides[naam];
+  // Vorm: [ [regio, code], [ { date, unix_date, water_height, tide,
+  //         date_predict, water_height_predict }, ... ] ]
+  // Let op: date en date_predict zijn Nederlandse kloktijd zonder offset,
+  // unix_date is wel een echte UTC-tijd. date_predict_unix is ondanks de naam
+  // ook een tekstdatum, die negeren we.
+  const lijst = Array.isArray(rij?.[1]) ? rij[1] : [];
+
+  return lijst
+    .map((e) => {
+      const type = e.tide === "HW" ? "hoogwater" : e.tide === "LW" ? "laagwater" : null;
+      const astroTijd = Number.isFinite(e.unix_date)
+        ? new Date(e.unix_date * 1000)
+        : nlTekstNaarDate(e.date);
+      const astroCm = Number.isFinite(Number(e.water_height)) ? Math.round(Number(e.water_height)) : null;
+      const verwTijd = nlTekstNaarDate(e.date_predict);
+      const verwCmRuw = e.water_height_predict;
+      const verwCm = verwCmRuw !== "" && verwCmRuw != null && Number.isFinite(Number(verwCmRuw))
+        ? Math.round(Number(verwCmRuw))
+        : null;
+      const heeftVerwachting = verwTijd && verwCm != null;
+
+      return {
+        tijdstip: (heeftVerwachting ? verwTijd : astroTijd)?.toISOString() ?? null,
+        type,
+        waardeCm: heeftVerwachting ? verwCm : astroCm,
+        astronomischTijdstip: astroTijd?.toISOString() ?? null,
+        astronomischCm: astroCm,
+        bron: heeftVerwachting ? "verwacht" : "astronomisch",
+        verschilCm: heeftVerwachting && astroCm != null ? verwCm - astroCm : 0,
+      };
+    })
+    .filter((m) => m.tijdstip && m.type)
+    .sort((a, b) => new Date(a.tijdstip) - new Date(b.tijdstip));
+}
+
+function nlTekstNaarDate(tekst) {
+  // "2026-10-08 08:30" in Nederlandse kloktijd naar een echte Date.
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(String(tekst || ""));
+  if (!m) return null;
+  return nlNaarDate(+m[1], +m[2], +m[3], +m[4], +m[5]);
+}
+
+// ---------- RWS (terugval) ----------
+
+async function extremenUitRws(code, now) {
+  const periodeGetij = {
+    Begindatumtijd: toRwsTijd(new Date(now - 12 * 60 * 60 * 1000)),
+    Einddatumtijd: toRwsTijd(new Date(now + 96 * 60 * 60 * 1000)), // 4 dagen vooruit
+  };
+
+  const [typen, hoogtes] = await Promise.all([
+    haalMetingen(code, { Groepering: { Code: "GETETBRKD2" } }, periodeGetij),
+    haalMetingen(
+      code,
+      {
+        Grootheid: { Code: "WATHTE" },
+        Groepering: { Code: "GETETBRKD2" },
+        Hoedanigheid: { Code: "NAP" },
+      },
+      periodeGetij
+    ),
+  ]);
+
+  // Hoogtes per tijdstip, zodat we ze aan het juiste extreem kunnen koppelen.
+  const hoogtePerTijd = new Map();
+  for (const m of hoogtes) {
+    const w = m.Meetwaarde?.Waarde_Numeriek;
+    if (m.Tijdstip && typeof w === "number") hoogtePerTijd.set(m.Tijdstip, Math.round(w));
+  }
+
+  const extremen = typen
+    .map((m) => ({
+      tijdstip: m.Tijdstip,
+      type: m.Meetwaarde?.Waarde_Alfanumeriek, // "hoogwater" | "laagwater"
+      waardeCm: hoogtePerTijd.has(m.Tijdstip) ? hoogtePerTijd.get(m.Tijdstip) : null,
+      astronomischTijdstip: m.Tijdstip,
+      astronomischCm: hoogtePerTijd.has(m.Tijdstip) ? hoogtePerTijd.get(m.Tijdstip) : null,
+      bron: "astronomisch",
+      verschilCm: 0,
+    }))
+    .filter((m) => m.tijdstip && m.type)
+    .sort((a, b) => new Date(a.tijdstip) - new Date(b.tijdstip));
+
+  // Verwachte extremen uit het RWS-stromingsmodel eroverheen leggen.
+  const verwachteExtremen = await haalVerwachting(code).catch((e) => {
+    console.warn("Verwachting niet beschikbaar:", e.message);
+    return [];
+  });
+  voegVerwachtingSamen(extremen, verwachteExtremen);
+  return extremen;
 }
 
 async function haalMetingen(code, aquoMetadata, periode) {
