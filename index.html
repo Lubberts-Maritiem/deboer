@@ -486,7 +486,7 @@ async function laadWaterstanden() {
       const stand = document.createElement("span");
       if (l.waardeCm == null) {
         stand.className = "geen";
-        stand.textContent = "geen meting";
+        stand.textContent = "N/A";
       } else {
         const teken = l.waardeCm > 0 ? "+" : l.waardeCm < 0 ? "\u2212" : "";
         stand.textContent = `${teken}${Math.abs(l.waardeCm)} cm`;
