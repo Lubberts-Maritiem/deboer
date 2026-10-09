@@ -291,6 +291,19 @@ pasThemaToe();
   [data-thema="rood"] button#thema { background: transparent; border-color: #3a0a06; color: #8f1e12; }
   [data-thema="rood"] button#kopieer:focus-visible,
   [data-thema="rood"] button#thema:focus-visible { outline-color: #8f1e12; }
+  /* ---------- Bijgewerkt-regel ---------- */
+  .bijgewerkt {
+    font-size: 0.8rem;
+    color: #5a6b78;
+    margin: 0.5rem 0 0;
+  }
+  .bijgewerkt.oud { color: #b35c00; font-weight: 600; }
+
+  [data-thema="nacht"] .bijgewerkt { color: #9fb3c2; }
+  [data-thema="nacht"] .bijgewerkt.oud { color: #ffb366; }
+
+  [data-thema="rood"] .bijgewerkt { color: #8f1e12; }
+  [data-thema="rood"] .bijgewerkt.oud { color: #e0321f; }
 </style>
 </head>
 <body>
@@ -315,7 +328,10 @@ pasThemaToe();
     <button id="thema" type="button" aria-live="polite">Auto</button>
   </div>
 
-  <div id="inhoud" class="status">Bezig met laden...</div>
+  <div id="inhoud">
+    <p id="bericht" class="status">Bezig met laden...</p>
+    <p id="getijregel" class="bericht getij-regel" hidden></p>
+  </div>
 
   <div class="acties">
     <button id="kopieer" type="button" disabled>Kopieer bericht en getij</button>
@@ -324,6 +340,7 @@ pasThemaToe();
 
 
   <div id="drempel" class="drempel">NAP West-Terschelling +50 cm wordt geladen...</div>
+  <p id="bijgewerkt" class="bijgewerkt" aria-live="polite"></p>
 </main>
 
 <div class="ticker" id="ticker" role="region" aria-label="Actuele waterstanden" hidden>
@@ -344,73 +361,174 @@ function formatTijd(iso) {
 function formatCm(cm) {
   // Verwachte hoogte t.o.v. NAP, met teken. Leeg als er geen waarde is.
   if (cm == null || !Number.isFinite(cm)) return "";
-  const teken = cm > 0 ? "+" : cm < 0 ? "\u2212" : "";
+  const teken = cm > 0 ? "+" : cm < 0 ? "−" : "";
   return ` (${teken}${Math.abs(cm)} cm)`;
 }
 
-async function laadAlles() {
-  const el = document.getElementById("inhoud");
-  const locatie = document.getElementById("locatie").value;
+// ---------- Ophalen met offline-geheugen ----------
+// Elk geslaagd antwoord van een API wordt in de browser bewaard. Lukt
+// ophalen niet (geen bereik, storing), dan tonen we de bewaarde versie en
+// zegt de regel "Bijgewerkt" hoe oud die is. Bij het openen van de pagina
+// staat de bewaarde versie er meteen, ook voordat het netwerk antwoordt.
+
+const CACHE_PREFIX = "cache:";
+const FETCH_TIMEOUT_MS = 10000;
+const MAX_LEEFTIJD_STANDEN_MS = 60 * 60 * 1000; // oudere standen niet als actueel tonen
+
+// Per onderdeel: van welke URL de getoonde gegevens komen, hoe oud ze zijn en
+// of ze uit het geheugen komen. Voedt de regel "Bijgewerkt".
+const bronStatus = {};
+// Volgnummer per onderdeel, zodat een traag antwoord van een vorige
+// meetlocatie een nieuwer antwoord niet overschrijft.
+const volgnummer = {};
+
+function leesCache(url) {
+  try {
+    const ruw = localStorage.getItem(CACHE_PREFIX + url);
+    return ruw ? JSON.parse(ruw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function schrijfCache(url, data) {
+  try {
+    localStorage.setItem(CACHE_PREFIX + url, JSON.stringify({ tijd: Date.now(), data }));
+  } catch {}
+}
+
+async function haalJson(url) {
+  let fout = new Error("geen verbinding");
+  if (navigator.onLine !== false) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, { signal: ctrl.signal });
+      if (res.status === 404) throw new Error(`${url} niet gevonden op de server`);
+      const data = await res.json().catch(() => {
+        throw new Error(`geen JSON van ${url} (status ${res.status})`);
+      });
+      if (!res.ok || data.error) throw new Error(data.detail || data.error || `status ${res.status}`);
+      schrijfCache(url, data);
+      return { data, tijd: Date.now(), uitCache: false };
+    } catch (err) {
+      fout = err.name === "AbortError" ? new Error("geen antwoord binnen 10 s") : err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  const bewaard = leesCache(url);
+  if (bewaard) return { data: bewaard.data, tijd: bewaard.tijd, uitCache: true, fout };
+  throw fout;
+}
+
+async function laadBron(sleutel, url, toon, toonFout) {
+  const nr = (volgnummer[sleutel] = (volgnummer[sleutel] || 0) + 1);
+  const actueel = () => volgnummer[sleutel] === nr;
+
+  // Nieuwe URL (eerste keer, of andere meetlocatie): eerst meteen de
+  // bewaarde versie tonen, zodat het scherm nooit leeg is.
+  if (bronStatus[sleutel]?.url !== url) {
+    const bewaard = leesCache(url);
+    if (bewaard) {
+      toon(bewaard.data, bewaard.tijd);
+      bronStatus[sleutel] = { url, tijd: bewaard.tijd, uitCache: true };
+      werkBijgewerktBij();
+    }
+  }
 
   try {
-    const [marifoonRes, getijRes] = await Promise.all([
-      fetch(`/api/marifoon?locatie=${encodeURIComponent(locatie)}`),
-      fetch(`/api/getij?locatie=${encodeURIComponent(locatie)}`),
-    ]);
-    const marifoon = await marifoonRes.json();
-    const getij = await getijRes.json();
-
-    if (marifoon.error) throw new Error(marifoon.error);
-
-    el.innerHTML = "";
-    el.className = "";
-
-    if (!marifoon.tekst) {
-      const p = document.createElement("p");
-      p.className = "status";
-      p.textContent = "Geen actueel marifoonbericht beschikbaar.";
-      el.appendChild(p);
-    } else {
-      const p = document.createElement("p");
-      p.className = "bericht";
-      p.textContent = marifoon.tekst;
-      el.appendChild(p);
-    }
-
-    // Getijregel achteraan, voor de gekozen locatie. De eerstvolgende twee
-    // extremen in de volgorde waarin ze komen: soms LW dan HW, soms andersom.
-    const getijP = document.createElement("p");
-    getijP.className = "bericht getij-regel";
-    if (getij.error) {
-      getijP.textContent = "Getijgegevens niet beschikbaar.";
-    } else {
-      const komende = getij.komende?.length
-        ? getij.komende
-        : [getij.volgendLaagwater, getij.volgendHoogwater]
-            .filter(Boolean)
-            .sort((a, b) => new Date(a.tijdstip) - new Date(b.tijdstip));
-      const delen = komende.map((e) => {
-        const label = e.type === "hoogwater" ? "HW" : "LW";
-        return `${label}: ${formatTijd(e.tijdstip)}${formatCm(e.waardeCm)}`;
-      });
-      getijP.textContent = delen.length
-        ? `${getij.locatie}, ${delen.join(", ")}`
-        : `${getij.locatie}, geen komende getijden bekend.`;
-    }
-    el.appendChild(getijP);
-    document.getElementById("kopieer").disabled = false;
+    const r = await haalJson(url);
+    if (!actueel()) return;
+    toon(r.data, r.tijd);
+    bronStatus[sleutel] = { url, tijd: r.tijd, uitCache: r.uitCache };
+    if (r.fout) console.warn(`${sleutel}: bewaarde versie getoond,`, r.fout.message);
   } catch (err) {
-    document.getElementById("kopieer").disabled = true;
-    el.className = "status";
-    el.textContent = "Kon de gegevens niet ophalen.";
-    console.error(err);
+    if (!actueel()) return;
+    console.error(`${sleutel}:`, err);
+    // Staat er al iets voor deze URL, laat dat dan staan.
+    if (bronStatus[sleutel]?.url !== url) {
+      toonFout(err);
+      bronStatus[sleutel] = { url, tijd: null, uitCache: false };
+    } else {
+      bronStatus[sleutel].uitCache = true;
+    }
   }
+  werkBijgewerktBij();
+}
+
+// ---------- Marifoonbericht en getij ----------
+// Twee losse onderdelen: als het ene faalt, blijft het andere gewoon staan.
+
+function toonBericht(marifoon) {
+  const p = document.getElementById("bericht");
+  if (marifoon.tekst) {
+    p.className = "bericht";
+    p.textContent = marifoon.tekst;
+  } else {
+    p.className = "status";
+    p.textContent = "Geen actueel marifoonbericht beschikbaar.";
+  }
+  werkKopieerknopBij();
+}
+
+function toonBerichtFout(err) {
+  const p = document.getElementById("bericht");
+  p.className = "status";
+  p.textContent = `Marifoonbericht niet beschikbaar (${err.message}).`;
+  werkKopieerknopBij();
+}
+
+function toonGetij(getij) {
+  // De eerstvolgende twee extremen in de volgorde waarin ze komen: soms LW
+  // dan HW, soms andersom. We rekenen "eerstvolgend" opnieuw uit vanaf nu,
+  // zodat een bewaarde versie offline ook uren later nog klopt.
+  const p = document.getElementById("getijregel");
+  const nu = Date.now();
+  let komende = (getij.extremen || [])
+    .filter((e) => new Date(e.tijdstip).getTime() >= nu)
+    .sort((a, b) => new Date(a.tijdstip) - new Date(b.tijdstip))
+    .slice(0, 2);
+  if (!komende.length) {
+    komende = (getij.komende || [getij.volgendLaagwater, getij.volgendHoogwater])
+      .filter((e) => e && new Date(e.tijdstip).getTime() >= nu)
+      .sort((a, b) => new Date(a.tijdstip) - new Date(b.tijdstip));
+  }
+  const delen = komende.map((e) => {
+    const label = e.type === "hoogwater" ? "HW" : "LW";
+    return `${label}: ${formatTijd(e.tijdstip)}${formatCm(e.waardeCm)}`;
+  });
+  p.textContent = delen.length
+    ? `${getij.locatie}, ${delen.join(", ")}`
+    : `${getij.locatie}, geen komende getijden bekend.`;
+  p.hidden = false;
+  werkKopieerknopBij();
+}
+
+function toonGetijFout(err) {
+  const p = document.getElementById("getijregel");
+  p.textContent = `Getijgegevens niet beschikbaar (${err.message}).`;
+  p.hidden = false;
+  werkKopieerknopBij();
+}
+
+function laadAlles() {
+  const locatie = encodeURIComponent(document.getElementById("locatie").value);
+  laadBron("bericht", `/api/marifoon?locatie=${locatie}`, toonBericht, toonBerichtFout);
+  laadBron("getij", `/api/getij?locatie=${locatie}`, toonGetij, toonGetijFout);
+}
+
+function werkKopieerknopBij() {
+  const iets = document.getElementById("bericht").classList.contains("bericht")
+    || !document.getElementById("getijregel").hidden;
+  document.getElementById("kopieer").disabled = !iets;
 }
 
 async function kopieerAlles() {
   // Marifoonbericht en getijregel in één keer, gescheiden door een witregel.
   const status = document.getElementById("kopieer-status");
   const regels = [...document.querySelectorAll("#inhoud p")]
+    .filter((p) => !p.hidden)
     .map((p) => p.textContent.trim())
     .filter(Boolean);
   if (!regels.length) return;
@@ -439,102 +557,156 @@ async function kopieerAlles() {
   kopieerAlles.timer = setTimeout(() => (status.textContent = ""), 2500);
 }
 
-async function laadDrempel() {
-  // Klein los element: wanneer West-Terschelling door NAP +50 cm gaat.
-  // Staat los van de locatiekeuze en van de rest van de pagina.
-  const el = document.getElementById("drempel");
-  try {
-    const res = await fetch("/api/drempel");
-    if (res.status === 404) throw new Error("api/drempel.js niet gevonden op de server");
-    const d = await res.json().catch(() => {
-      throw new Error(`geen JSON van /api/drempel (status ${res.status})`);
-    });
-    if (!res.ok || d.error) throw new Error(d.detail || d.error || `status ${res.status}`);
+// ---------- NAP West-Terschelling +50 cm ----------
 
-    const kop = `<strong>NAP ${d.locatie} +${d.niveauCm} cm</strong>`;
-    if (!d.komende?.length) {
-      el.innerHTML = `${kop}: ${d.nuBoven ? "blijft erboven" : "wordt niet gehaald"} binnen de verwachting.`;
-      return;
-    }
-    const delen = d.komende.map((k) => `${k.richting} ${formatTijd(k.tijdstip)}`);
-    el.innerHTML = `${kop}: ${delen.join(", ")}`;
-  } catch (err) {
-    // De reden staat erbij, zodat je ziet waar het misgaat.
-    el.textContent = `NAP West-Terschelling +50 cm: niet beschikbaar (${err.message}).`;
-    console.error(err);
+function toonDrempel(d) {
+  const el = document.getElementById("drempel");
+  const kop = `<strong>NAP ${d.locatie} +${d.niveauCm} cm</strong>`;
+  const nu = Date.now();
+  const komende = (d.komende || []).filter((k) => new Date(k.tijdstip).getTime() >= nu);
+  if (komende.length) {
+    el.innerHTML = `${kop}: ${komende.map((k) => `${k.richting} ${formatTijd(k.tijdstip)}`).join(", ")}`;
+  } else if (d.komende?.length) {
+    // Alle bewaarde momenten liggen al achter ons (offline).
+    el.innerHTML = `${kop}: geen actuele verwachting.`;
+  } else {
+    el.innerHTML = `${kop}: ${d.nuBoven ? "blijft erboven" : "wordt niet gehaald"} binnen de verwachting.`;
   }
 }
 
-async function laadWaterstanden() {
-  // Rollende balk onderaan met de gemeten standen van waddendata.
-  // De inhoud staat er twee keer in, zodat de lus naadloos doorloopt.
+function toonDrempelFout(err) {
+  document.getElementById("drempel").textContent =
+    `NAP West-Terschelling +50 cm: niet beschikbaar (${err.message}).`;
+}
+
+function laadDrempel() {
+  laadBron("drempel", "/api/drempel", toonDrempel, toonDrempelFout);
+}
+
+// ---------- Rollende balk met waterstanden ----------
+
+function toonWaterstanden(d, tijd) {
+  // Liever geen balk dan een verouderde balk: bewaarde standen van langer
+  // dan een uur geleden tonen we niet.
   const balk = document.getElementById("ticker");
   const band = document.getElementById("ticker-band");
-  try {
-    const res = await fetch("/api/waterstanden");
-    const d = await res.json();
-    if (!res.ok || d.error || !d.locaties?.length) throw new Error(d.detail || d.error || res.status);
-
-    const reeks = document.createDocumentFragment();
-    for (const l of d.locaties) {
-      const item = document.createElement("span");
-      item.className = "ticker-item";
-      const naam = document.createElement("b");
-      naam.textContent = l.naam;
-      item.appendChild(naam);
-
-      const stand = document.createElement("span");
-      if (l.waardeCm == null) {
-        stand.className = "geen";
-        stand.textContent = "N/A";
-      } else {
-        const teken = l.waardeCm > 0 ? "+" : l.waardeCm < 0 ? "\u2212" : "";
-        stand.textContent = `${teken}${Math.abs(l.waardeCm)} cm`;
-      }
-      item.appendChild(stand);
-
-      if (l.waardeCm != null && l.richting) {
-        const pijl = document.createElement("span");
-        pijl.className = "pijl";
-        pijl.textContent = l.richting === "stijgend" ? "\u25B2" : "\u25BC";
-        pijl.title = l.richting;
-        item.appendChild(pijl);
-      }
-      reeks.appendChild(item);
-
-      const icoon = document.createElement("img");
-      icoon.className = "ticker-icoon";
-      icoon.src = "https://www.dutchdredging.nl/media/beeldmerk/small/50x50/beeldmerk.png";
-      icoon.alt = "";
-      reeks.appendChild(icoon);
-    }
-
-    const vingerafdruk = JSON.stringify(d.locaties.map((l) => [l.naam, l.waardeCm, l.richting]));
-    if (vingerafdruk !== band.dataset.vingerafdruk) {
-      band.dataset.vingerafdruk = vingerafdruk;
-      band.replaceChildren(reeks.cloneNode(true), reeks);
-    }
-    balk.hidden = false;
-    // Gelijke snelheid ongeacht schermbreedte: ongeveer 50 pixels per seconde.
-    requestAnimationFrame(() => {
-      band.style.setProperty("--duur", `${Math.max(20, band.scrollWidth / 2 / 50)}s`);
-    });
-  } catch (err) {
-    // Liever geen balk dan een lege of verouderde balk.
+  if (!d.locaties?.length || Date.now() - tijd > MAX_LEEFTIJD_STANDEN_MS) {
     balk.hidden = true;
-    console.error("Waterstanden niet beschikbaar:", err);
+    return;
   }
+
+  const reeks = document.createDocumentFragment();
+  for (const l of d.locaties) {
+    const item = document.createElement("span");
+    item.className = "ticker-item";
+    const naam = document.createElement("b");
+    naam.textContent = l.naam;
+    item.appendChild(naam);
+
+    const stand = document.createElement("span");
+    if (l.waardeCm == null) {
+      stand.className = "geen";
+      stand.textContent = "N/A";
+    } else {
+      const teken = l.waardeCm > 0 ? "+" : l.waardeCm < 0 ? "−" : "";
+      stand.textContent = `${teken}${Math.abs(l.waardeCm)} cm`;
+    }
+    item.appendChild(stand);
+
+    if (l.waardeCm != null && l.richting) {
+      const pijl = document.createElement("span");
+      pijl.className = "pijl";
+      pijl.textContent = l.richting === "stijgend" ? "▲" : "▼";
+      pijl.title = l.richting;
+      item.appendChild(pijl);
+    }
+    reeks.appendChild(item);
+
+    const icoon = document.createElement("img");
+    icoon.className = "ticker-icoon";
+    icoon.src = "https://www.dutchdredging.nl/media/beeldmerk/small/50x50/beeldmerk.png";
+    icoon.alt = "";
+    reeks.appendChild(icoon);
+  }
+
+  // Alleen opnieuw opbouwen als er echt iets veranderd is, anders springt
+  // het rollen terug naar het begin.
+  const vingerafdruk = JSON.stringify(d.locaties.map((l) => [l.naam, l.waardeCm, l.richting]));
+  if (vingerafdruk !== band.dataset.vingerafdruk) {
+    band.dataset.vingerafdruk = vingerafdruk;
+    band.replaceChildren(reeks.cloneNode(true), reeks);
+  }
+  balk.hidden = false;
+  // Gelijke snelheid ongeacht schermbreedte: ongeveer 50 pixels per seconde.
+  requestAnimationFrame(() => {
+    band.style.setProperty("--duur", `${Math.max(20, band.scrollWidth / 2 / 50)}s`);
+  });
 }
 
-document.getElementById("kopieer").addEventListener("click", kopieerAlles);
+function toonWaterstandenFout() {
+  document.getElementById("ticker").hidden = true;
+}
+
+function laadWaterstanden() {
+  laadBron("waterstanden", "/api/waterstanden", toonWaterstanden, toonWaterstandenFout);
+}
+
+// ---------- Regel "Bijgewerkt" ----------
+// Toont wanneer de gegevens op het scherm zijn opgehaald. Grijs als alles
+// vers is, oranje als er iets uit het geheugen komt of ouder is dan 25 minuten.
+
+const OUD_NA_MS = 25 * 60 * 1000;
+
+function klokTijd(ms) {
+  const d = new Date(ms);
+  const vandaag = new Date().toDateString() === d.toDateString();
+  return d.toLocaleString("nl-NL", vandaag
+    ? { hour: "2-digit", minute: "2-digit" }
+    : { weekday: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function duurTekst(ms) {
+  const min = Math.round(ms / 60000);
+  if (min < 1) return "zojuist";
+  if (min < 60) return `${min} min geleden`;
+  const uur = Math.floor(min / 60);
+  return uur < 24 ? `${uur} uur geleden` : `${Math.floor(uur / 24)} dag geleden`;
+}
+
+function werkBijgewerktBij() {
+  const el = document.getElementById("bijgewerkt");
+  const bronnen = Object.values(bronStatus).filter((b) => b.tijd);
+  if (!bronnen.length) {
+    el.textContent = navigator.onLine === false ? "Geen verbinding en nog geen bewaarde gegevens." : "";
+    el.classList.toggle("oud", navigator.onLine === false);
+    return;
+  }
+  const oudste = Math.min(...bronnen.map((b) => b.tijd));
+  const leeftijd = Date.now() - oudste;
+  const uitCache = bronnen.some((b) => b.uitCache);
+  const offline = navigator.onLine === false;
+
+  let tekst;
+  if (offline) {
+    tekst = `Geen verbinding. Gegevens van ${klokTijd(oudste)} (${duurTekst(leeftijd)}).`;
+  } else if (uitCache || leeftijd > OUD_NA_MS) {
+    tekst = `Verversen lukt niet. Gegevens van ${klokTijd(oudste)} (${duurTekst(leeftijd)}).`;
+  } else {
+    tekst = `Bijgewerkt ${klokTijd(oudste)}`;
+  }
+  el.textContent = tekst;
+  el.title = "Tijdstip waarop deze pagina de gegevens heeft opgehaald";
+  el.classList.toggle("oud", offline || uitCache || leeftijd > OUD_NA_MS);
+}
+
 // ---------- Themaknop ----------
 const THEMA_VOLGORDE = ["auto", "dag", "nacht", "rood"];
-const THEMA_LABEL = { dag: "\u2600 Dag", nacht: "\u263E Nacht", rood: "\u25CF Rood brug" };
+const THEMA_LABEL = { dag: "☀ Dag", nacht: "☾ Nacht", rood: "● Rood brug" };
 
 function toonThemaKnop() {
   const { keuze, thema } = pasThemaToe();
   const knop = document.getElementById("thema");
-  knop.textContent = keuze === "auto" ? `Auto \u00B7 ${thema === "nacht" ? "nacht" : "dag"}` : THEMA_LABEL[keuze];
+  knop.textContent = keuze === "auto" ? `Auto · ${thema === "nacht" ? "nacht" : "dag"}` : THEMA_LABEL[keuze];
   knop.title = "Wissel tussen automatisch, dag, nacht en rood brugscherm";
 }
 
@@ -545,8 +717,13 @@ document.getElementById("thema").addEventListener("click", () => {
   toonThemaKnop();
 });
 
-// Elke minuut controleren, zodat de wissel op zon op en zon onder gebeurt.
-setInterval(toonThemaKnop, 60 * 1000);
+document.getElementById("kopieer").addEventListener("click", kopieerAlles);
+
+// Elke minuut: thema volgens de zon en leeftijd in "Bijgewerkt".
+setInterval(() => {
+  toonThemaKnop();
+  werkBijgewerktBij();
+}, 60 * 1000);
 toonThemaKnop();
 
 // ---------- Automatisch verversen ----------
@@ -556,8 +733,8 @@ toonThemaKnop();
 // slaapstand. Daarom verversen we ook meteen als je terugkomt op de pagina
 // en de laatste keer langer dan 2 minuten geleden is.
 // Daarnaast herlaadt de hele pagina elke 10 minuten, zodat een nieuwe versie
-// van je site vanzelf binnenkomt op een scherm dat dag en nacht openstaat.
-// De gekozen locatie blijft daarbij bewaard.
+// van je site vanzelf binnenkomt. Zonder verbinding slaan we dat over, zodat
+// je geen foutpagina krijgt. De gekozen locatie blijft bewaard.
 
 const VERVERS_MS = 10 * 60 * 1000;
 const TERUGKOMST_MS = 2 * 60 * 1000;
@@ -570,6 +747,10 @@ function ververs() {
   laadAlles();
   laadDrempel();
   laadWaterstanden();
+}
+
+function magHerladen() {
+  return Date.now() - geladenOp > HERLAAD_MS && navigator.onLine !== false;
 }
 
 function bewaarLocatie() {
@@ -593,18 +774,27 @@ document.getElementById("locatie").addEventListener("change", () => {
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return;
-  if (Date.now() - geladenOp > HERLAAD_MS) return location.reload();
+  if (magHerladen()) return location.reload();
   if (Date.now() - laatsteVerversing > TERUGKOMST_MS) ververs();
 });
+
+// Verbinding terug: meteen verversen. Verbinding weg: regel bijwerken.
+window.addEventListener("online", ververs);
+window.addEventListener("offline", werkBijgewerktBij);
 
 setInterval(() => {
   // Volledig herladen alleen als de pagina zichtbaar is; anders gebeurt het
   // bij terugkomst via visibilitychange.
-  if (Date.now() - geladenOp > HERLAAD_MS && document.visibilityState === "visible") {
+  if (magHerladen() && document.visibilityState === "visible") {
     return location.reload();
   }
   ververs();
 }, VERVERS_MS);
+
+// Service worker: bewaart de pagina zelf, zodat hij ook zonder bereik opent.
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch((err) => console.warn("Service worker:", err));
+}
 
 herstelLocatie();
 ververs();
