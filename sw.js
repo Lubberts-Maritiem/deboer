@@ -4,6 +4,7 @@
 // Wat hij bewaart:
 //   - de pagina zelf (index.html) en de favicons
 //   - de achtergrondfoto en het beeldmerk van dutchdredging.nl
+//   - het lettertype Inter van Google Fonts
 // Wat hij NIET doet:
 //   - de API's (/api/...). Die bewaart de pagina zelf in de browser, met
 //     tijdstempel, zodat hij kan laten zien hoe oud de gegevens zijn.
@@ -14,13 +15,13 @@
 // Pas je de lijst of de aanpak hier aan, verhoog dan VERSIE. Dan ruimt de
 // browser de oude bewaarde bestanden vanzelf op.
 
-const VERSIE = "v1";
+const VERSIE = "v2";
 const PAGINA = `pagina-${VERSIE}`;
 const BEELD = `beeld-${VERSIE}`;
 const NETWERK_TIMEOUT_MS = 5000;
 
 const VASTE_BESTANDEN = ["/", "/favicon.ico", "/favicon-32.png", "/apple-touch-icon.png"];
-const BEELD_HOSTS = ["www.dutchdredging.nl"];
+const BEELD_HOSTS = ["www.dutchdredging.nl", "fonts.googleapis.com", "fonts.gstatic.com"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -62,7 +63,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Foto en beeldmerk van De Boer: uit het geheugen als het kan, en op de
+  // Foto, beeldmerk en lettertype: uit het geheugen als het kan, en op de
   // achtergrond bijwerken.
   if (BEELD_HOSTS.includes(url.hostname)) {
     event.respondWith(geheugenEerst(req));
