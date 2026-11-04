@@ -39,25 +39,43 @@ function zonTijden(datum, lat, lon) {
   return { op: naarDate(Jt - W / 360), onder: naarDate(Jt + W / 360) };
 }
 
-function isNacht(nu = new Date()) {
-  // Rekenen vanaf 12:00 UTC op de Nederlandse kalenderdag. Anders valt een
-  // tijdstip vroeg in de ochtend in de berekening van de volgende dag.
+function zonVanDag(nu, dagenVerder = 0) {
+  // Zon op en onder op de Nederlandse kalenderdag, gerekend vanaf 12:00 UTC.
+  // Anders valt een tijdstip vroeg in de ochtend in de berekening van de
+  // volgende dag.
   const [j, m, d] = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Amsterdam", year: "numeric", month: "2-digit", day: "2-digit",
   }).format(nu).split("-").map(Number);
-  const { op, onder } = zonTijden(new Date(Date.UTC(j, m - 1, d, 12)), ZON_LAT, ZON_LON);
+  return zonTijden(new Date(Date.UTC(j, m - 1, d + dagenVerder, 12)), ZON_LAT, ZON_LON);
+}
+
+function isNacht(nu = new Date()) {
+  const { op, onder } = zonVanDag(nu);
   return nu < op || nu >= onder;
 }
 
+function volgendeZonswissel(nu = new Date()) {
+  // Eerstvolgende zon op of zon onder na nu.
+  const vandaag = zonVanDag(nu);
+  const morgen = zonVanDag(nu, 1);
+  return [vandaag.op, vandaag.onder, morgen.op].find((t) => t > nu) || morgen.onder;
+}
+
+// De weergave is altijd automatisch. Kiest de gebruiker zelf dag, nacht of
+// rood, dan geldt die keuze tot de volgende zon op of zon onder; daarna
+// volgt de pagina weer de zon.
 function leesThemaKeuze() {
-  try { return localStorage.getItem("thema") || "auto"; } catch { return "auto"; }
+  try {
+    const k = JSON.parse(localStorage.getItem("thema") || "null");
+    if (k && ["dag", "nacht", "rood"].includes(k.keuze) && Date.now() < k.tot) return k.keuze;
+  } catch {}
+  return null;
 }
 
 function pasThemaToe() {
   const keuze = leesThemaKeuze();
-  const thema = keuze === "auto" ? (isNacht() ? "nacht" : "dag") : keuze;
+  const thema = keuze || (isNacht() ? "nacht" : "dag");
   document.documentElement.dataset.thema = thema;
-  document.documentElement.dataset.themaKeuze = keuze;
   return { keuze, thema };
 }
 
@@ -76,9 +94,9 @@ pasThemaToe();
     --schaduw: 0 1px 2px rgba(7, 59, 85, 0.06);
     --zon: #f2b705;
     --wolk: #3d7fb3;
-    --foto-opacity: 0.42;
-    --foto-filter: blur(3px) saturate(0.65) brightness(0.82);
-    --waas: linear-gradient(to bottom, rgba(238, 243, 245, 0.92) 0%, rgba(238, 243, 245, 0.72) 45%, rgba(238, 243, 245, 0.35) 100%);
+    --foto-opacity: 0.6;
+    --foto-filter: blur(2px) saturate(0.75) brightness(0.88);
+    --waas: linear-gradient(to bottom, rgba(238, 243, 245, 0.85) 0%, rgba(238, 243, 245, 0.55) 45%, rgba(238, 243, 245, 0.2) 100%);
     --knop-actief-tekst: #ffffff;
     color-scheme: light;
   }
@@ -92,9 +110,9 @@ pasThemaToe();
     --schaduw: none;
     --zon: #e8d27a;
     --wolk: #5d8fb8;
-    --foto-opacity: 0.2;
-    --foto-filter: blur(3px) saturate(0.5) brightness(0.45);
-    --waas: linear-gradient(to bottom, rgba(8, 20, 29, 0.9) 0%, rgba(8, 20, 29, 0.6) 100%);
+    --foto-opacity: 0.28;
+    --foto-filter: blur(2px) saturate(0.55) brightness(0.5);
+    --waas: linear-gradient(to bottom, rgba(8, 20, 29, 0.85) 0%, rgba(8, 20, 29, 0.5) 100%);
     --knop-actief-tekst: #08141d;
     color-scheme: dark;
   }
@@ -290,7 +308,9 @@ pasThemaToe();
     font-weight: 600;
     color: var(--primair);
   }
-  .getij-kop svg { width: 24px; height: 15px; stroke: var(--wolk); }
+  .getij-kop svg { width: 26px; height: 24px; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+  .getij-kop .golf { stroke: var(--wolk); }
+  .getij-kop .pijl { stroke: var(--primair); }
   .getij-tijd {
     margin-top: 0.35rem;
     font-size: 2.6rem;
@@ -392,22 +412,19 @@ pasThemaToe();
     animation: rol var(--duur, 60s) linear infinite;
   }
   .ticker:hover .ticker-band { animation-play-state: paused; }
-  .ticker-item { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .ticker-item { display: inline-flex; align-items: center; gap: 0.35rem; margin-right: 1.6rem; }
   .ticker-item b { font-weight: 600; }
   .ticker-item .pijl { color: #9fd3ec; font-size: 0.75rem; }
   .ticker-item .geen { color: #b9cdd8; }
-  .ticker-icoon { height: 0.8rem; width: auto; margin: 0 1.8rem; vertical-align: middle; }
   @keyframes rol { to { transform: translateX(-50%); } }
   @media (prefers-reduced-motion: reduce) {
     .ticker { overflow-x: auto; }
     .ticker-band { animation: none; }
   }
   [data-thema="nacht"] .ticker { background: #012a4f; }
-  [data-thema="nacht"] .ticker-icoon { opacity: 0.75; }
   [data-thema="rood"] .ticker { background: #140404; color: #c42a1a; }
   [data-thema="rood"] .ticker-item .pijl,
   [data-thema="rood"] .ticker-item .geen { color: #8f1e12; }
-  [data-thema="rood"] .ticker-icoon { filter: grayscale(1) sepia(1) saturate(6) hue-rotate(-30deg) brightness(0.55); }
 
   @media (max-width: 380px) {
     .getij-tijd { font-size: 2.2rem; }
@@ -442,7 +459,6 @@ pasThemaToe();
       </span>
     </label>
     <div class="thema" id="thema" role="group" aria-label="Weergave">
-      <button type="button" data-keuze="auto" aria-pressed="false">Auto</button>
       <button type="button" data-keuze="dag" aria-pressed="false" title="Dag" aria-label="Dag"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round"/></svg></button>
       <button type="button" data-keuze="nacht" aria-pressed="false" title="Nacht" aria-label="Nacht"><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" stroke-linejoin="round"/></svg></button>
       <button type="button" data-keuze="rood" aria-pressed="false" title="Rood brugscherm" aria-label="Rood brugscherm"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="currentColor"/></svg></button>
@@ -673,7 +689,10 @@ function toonBerichtFout(err) {
   werkKopieerknopBij();
 }
 
-const GOLF = `<svg viewBox="0 0 32 20" aria-hidden="true"><path d="M2 5c3.5-3 6.5-3 10 0s6.5 3 10 0 6.5-3 8 0M2 11c3.5-3 6.5-3 10 0s6.5 3 10 0 6.5-3 8 0M2 17c3.5-3 6.5-3 10 0s6.5 3 10 0 6.5-3 8 0" fill="none" stroke-width="2" stroke-linecap="round"/></svg>`;
+// Golven met een pijl: omhoog voor hoogwater, omlaag voor laagwater.
+const GOLVEN = `<path class="golf" d="M2 21c2.5-2.2 4.8-2.2 7.3 0s4.8 2.2 7.3 0 4.8-2.2 7.3 0 4.8 2.2 6.1 0M2 27c2.5-2.2 4.8-2.2 7.3 0s4.8 2.2 7.3 0 4.8-2.2 7.3 0 4.8 2.2 6.1 0"/>`;
+const PIJL_OP = `<svg viewBox="0 0 32 30" aria-hidden="true">${GOLVEN}<path class="pijl" d="M16 15V3M11 8l5-5 5 5"/></svg>`;
+const PIJL_NEER = `<svg viewBox="0 0 32 30" aria-hidden="true">${GOLVEN}<path class="pijl" d="M16 3v12M11 10l5 5 5-5"/></svg>`;
 
 function toonGetij(getij) {
   // De eerstvolgende twee extremen in de volgorde waarin ze komen: soms LW
@@ -707,7 +726,7 @@ function toonGetij(getij) {
     kaart.className = `kaart getij-kaart ${hw ? "hw" : "lw"}`;
     const dag = dagLabel(e.tijdstip);
     kaart.innerHTML = `
-      <div class="getij-kop">${GOLF}<span>${hw ? "Hoogwater" : "Laagwater"}</span></div>
+      <div class="getij-kop">${hw ? PIJL_OP : PIJL_NEER}<span>${hw ? "Hoogwater" : "Laagwater"}</span></div>
       <div class="getij-tijd">${new Date(e.tijdstip).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}</div>
       <div class="getij-hoogte">${cmTekst(e.waardeCm)}${dag ? ` <span class="getij-dag">${dag}</span>` : ""}</div>`;
     return kaart;
@@ -771,7 +790,8 @@ async function kopieerAlles() {
 }
 
 // ---------- NAP West-Terschelling +50 cm ----------
-// Als venster geschreven: wanneer staat het water erboven.
+// Wanneer het water door +50 cm gaat: stijgend of dalend, in de volgorde
+// waarin het gebeurt.
 
 function toonDrempel(d) {
   document.getElementById("nap-plaats").textContent = d.locatie;
@@ -786,16 +806,8 @@ function toonDrempel(d) {
       : d.nuBoven ? "Blijft erboven binnen de verwachting." : "Wordt niet gehaald binnen de verwachting.";
     return;
   }
-  const [a, b] = k;
-  if (a.richting === "stijgend") {
-    el.textContent = b && b.richting === "dalend"
-      ? `Erboven van ${kortTijd(a.tijdstip)} tot ${kortTijd(b.tijdstip)}`
-      : `Erboven vanaf ${kortTijd(a.tijdstip)}`;
-  } else {
-    el.textContent = b && b.richting === "stijgend"
-      ? `Erboven tot ${kortTijd(a.tijdstip)}, weer vanaf ${kortTijd(b.tijdstip)}`
-      : `Erboven tot ${kortTijd(a.tijdstip)}`;
-  }
+  const tekst = k.map((x) => `${x.richting} ${kortTijd(x.tijdstip)}`).join(" \u00B7 ");
+  el.textContent = tekst.charAt(0).toUpperCase() + tekst.slice(1);
 }
 
 function toonDrempelFout(err) {
@@ -844,12 +856,6 @@ function toonWaterstanden(d, tijd) {
       item.appendChild(pijl);
     }
     reeks.appendChild(item);
-
-    const icoon = document.createElement("img");
-    icoon.className = "ticker-icoon";
-    icoon.src = "https://www.dutchdredging.nl/media/beeldmerk/small/50x50/beeldmerk.png";
-    icoon.alt = "";
-    reeks.appendChild(icoon);
   }
 
   // Alleen opnieuw opbouwen als er echt iets veranderd is, anders springt
@@ -923,24 +929,33 @@ function werkBijgewerktBij() {
 }
 
 // ---------- Weergaveschakelaar ----------
-// Vier knoppen naast elkaar: Auto, dag, nacht en rood brugscherm. De
-// gekozen knop is gevuld. Op "Auto" volgt de pagina zon op en zon onder.
+// Drie knoppen: dag, nacht en rood brugscherm. De pagina kiest zelf dag of
+// nacht op zon op en zon onder; de knop van de huidige weergave is gevuld.
+// Een eigen keuze geldt tot de volgende zonswissel. Klik je de weergave die
+// de zon toch al zou kiezen, dan ben je meteen weer op automatisch.
 
 function toonThemaKnop() {
   const { keuze, thema } = pasThemaToe();
   for (const knop of document.querySelectorAll("#thema button")) {
-    const actief = knop.dataset.keuze === keuze;
-    knop.setAttribute("aria-pressed", String(actief));
+    knop.setAttribute("aria-pressed", String(knop.dataset.keuze === thema));
   }
-  const auto = document.querySelector('#thema button[data-keuze="auto"]');
-  auto.title = `Automatisch op zon op en onder, nu ${thema === "nacht" ? "nacht" : "dag"}`;
+  document.getElementById("thema").title = keuze
+    ? `Eigen keuze tot ${volgendeZonswissel().toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}, daarna weer automatisch`
+    : "Automatisch op zon op en zon onder";
 }
 
 document.getElementById("thema").addEventListener("click", (e) => {
   const knop = e.target.closest("button[data-keuze]");
   if (!knop) return;
-  try { localStorage.setItem("thema", knop.dataset.keuze); } catch {}
+  const automatisch = isNacht() ? "nacht" : "dag";
+  try {
+    if (knop.dataset.keuze === automatisch) localStorage.removeItem("thema");
+    else localStorage.setItem("thema", JSON.stringify({ keuze: knop.dataset.keuze, tot: volgendeZonswissel().getTime() }));
+  } catch {}
   toonThemaKnop();
+  // Weericoon (zon of maan) meteen laten meewisselen.
+  const bericht = document.getElementById("bericht");
+  if (!bericht.classList.contains("leeg")) document.getElementById("weer-icoon").innerHTML = kiesWeerIcoon(bericht.textContent);
 });
 
 document.getElementById("kopieer").addEventListener("click", kopieerAlles);
