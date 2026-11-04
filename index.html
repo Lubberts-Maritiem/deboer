@@ -7,6 +7,9 @@
 <link rel="icon" href="/favicon.ico" sizes="any" />
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" rel="stylesheet" />
 <link rel="alternate" type="application/rss+xml" title="Marifoonbericht en getij" href="/api/rss" />
 <script>
 // ---------- Dag- en nachtweergave ----------
@@ -61,119 +64,316 @@ function pasThemaToe() {
 pasThemaToe();
 </script>
 <style>
+  /* Rustig nautisch dashboard. Alle kleuren als variabelen, zodat de
+     nacht- en roodweergave alleen deze waarden hoeven te vervangen. */
   :root {
-    --zee: #0b3d59;
-    --zee-licht: #e8f1f5;
-    --tekst: #142433;
+    --achtergrond: #eef3f5;
+    --kaart: #ffffff;
+    --tekst: #0f2a3a;
+    --primair: #073b55;
+    --secundair: #5d7686;
+    --lijn: #d5e0e6;
+    --schaduw: 0 1px 2px rgba(7, 59, 85, 0.06);
+    --zon: #f2b705;
+    --wolk: #3d7fb3;
+    --foto-opacity: 0.42;
+    --foto-filter: blur(3px) saturate(0.65) brightness(0.82);
+    --waas: linear-gradient(to bottom, rgba(238, 243, 245, 0.92) 0%, rgba(238, 243, 245, 0.72) 45%, rgba(238, 243, 245, 0.35) 100%);
+    --knop-actief-tekst: #ffffff;
+    color-scheme: light;
   }
+  [data-thema="nacht"] {
+    --achtergrond: #08141d;
+    --kaart: #102231;
+    --tekst: #dce7ee;
+    --primair: #8cc4e6;
+    --secundair: #8ba3b3;
+    --lijn: #1f3547;
+    --schaduw: none;
+    --zon: #e8d27a;
+    --wolk: #5d8fb8;
+    --foto-opacity: 0.2;
+    --foto-filter: blur(3px) saturate(0.5) brightness(0.45);
+    --waas: linear-gradient(to bottom, rgba(8, 20, 29, 0.9) 0%, rgba(8, 20, 29, 0.6) 100%);
+    --knop-actief-tekst: #08141d;
+    color-scheme: dark;
+  }
+  /* Rood brugscherm: alleen gedempt rood op zwart, spaart het nachtzicht. */
+  [data-thema="rood"] {
+    --achtergrond: #000000;
+    --kaart: #0f0302;
+    --tekst: #c42a1a;
+    --primair: #e0321f;
+    --secundair: #8f1e12;
+    --lijn: #2a0705;
+    --schaduw: none;
+    --zon: #c42a1a;
+    --wolk: #8f1e12;
+    --foto-opacity: 0;
+    --waas: none;
+    --knop-actief-tekst: #000000;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: 2rem 1.25rem;
-    background: var(--zee-licht);
-    color: var(--tekst);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    line-height: 1.5;
+    padding: 1.25rem 1rem 5rem;
     min-height: 100vh;
-    box-sizing: border-box;
+    background: var(--achtergrond);
+    color: var(--tekst);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
   }
-  /* Foto van de haven van West-Terschelling als subtiele achtergrond:
-     vast op zijn plek, licht wazig en grotendeels doorzichtig, zodat de
-     lichtblauwe kleur erdoorheen blijft en de tekst goed leesbaar is.
-     De negatieve inset voorkomt lichte randen door de blur. */
-  body::before {
+  /* Achtergrondfoto: gedimd, wazig en naar boven toe weggewassen, zodat de
+     kaarten rustig en leesbaar blijven. */
+  body::before,
+  body::after {
     content: "";
     position: fixed;
     inset: -20px;
-    z-index: -1;
-    background: url("https://www.dutchdredging.nl/media/etna-waddenzee-01/content_image_large/61x59/etna-waddenzee-01.jpg") center / cover no-repeat;
-    filter: blur(3px);
-    opacity: 0.35;
+    z-index: -2;
     pointer-events: none;
   }
+  body::before {
+    background: url("https://www.dutchdredging.nl/media/etna-waddenzee-01/content_image_large/61x59/etna-waddenzee-01.jpg") center 70% / cover no-repeat;
+    filter: var(--foto-filter);
+    opacity: var(--foto-opacity);
+  }
+  body::after {
+    z-index: -1;
+    background: var(--waas);
+  }
+
   main {
     max-width: 560px;
     margin: 0 auto;
+    display: grid;
+    gap: 0.75rem;
   }
-  h1 {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: var(--zee);
-    margin: 0 0 1rem;
+
+  /* ---------- A. Locatiebalk ---------- */
+  .kop {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding-bottom: 0.9rem;
+    margin-bottom: 0.4rem;
+    border-bottom: 1px solid var(--lijn);
   }
-  .bericht {
-    background: white;
-    border-radius: 10px;
-    padding: 1.1rem 1.25rem;
-    margin-bottom: 0.75rem;
-    box-shadow: 0 1px 3px rgba(11, 61, 89, 0.12);
-    font-size: 1.05rem;
+  .locatie {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
   }
-  .status {
-    color: #5a6b78;
-    font-size: 0.9rem;
+  .locatie > svg {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    fill: var(--primair);
   }
-  .getij-regel {
-    font-weight: 600;
-    color: var(--zee);
+  .locatie-label {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--secundair);
+    line-height: 1.2;
+  }
+  /* De naam is gewone tekst; de keuzelijst ligt er onzichtbaar overheen.
+     Zo is het pijltje altijd direct naast de naam, hoe lang die ook is. */
+  .select-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  #locatie-naam {
+    font-size: 1.45rem;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    color: var(--primair);
+    white-space: nowrap;
+  }
+  .select-wrap svg {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    stroke: var(--primair);
   }
   select#locatie {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    opacity: 0;
+    font-size: 16px; /* voorkomt inzoomen op iPhone */
+    cursor: pointer;
+  }
+  .select-wrap:has(select:focus-visible) { outline: 2px solid var(--primair); outline-offset: 3px; border-radius: 4px; }
+
+  .thema {
+    margin-left: auto; /* blijft rechts, ook als hij naar een tweede regel schuift */
+    display: inline-flex;
+    padding: 2px;
+    border: 1px solid var(--lijn);
+    border-radius: 999px;
+    background: var(--kaart);
+  }
+  .thema button {
     font: inherit;
-    padding: 0.3rem 0.5rem;
-    border-radius: 6px;
-    border: 1px solid #b9cdd8;
-    background: white;
-    color: var(--tekst);
-    margin-bottom: 1rem;
+    font-size: 0.75rem;
+    line-height: 1;
+    min-width: 1.85rem;
+    height: 1.7rem;
+    padding: 0 0.5rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--secundair);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
-  label[for="locatie"] {
+  .thema button svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; }
+  .thema button[aria-pressed="true"] { background: var(--primair); color: var(--knop-actief-tekst); }
+  .thema button:focus-visible { outline: 2px solid var(--primair); outline-offset: 1px; }
+
+  /* ---------- Kaarten ---------- */
+  .kaart {
+    background: var(--kaart);
+    border-radius: 12px;
+    box-shadow: var(--schaduw);
+  }
+
+  /* ---------- B. Verwachting ---------- */
+  .weer {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.8rem 1rem;
+  }
+  .weer-icoon { flex: none; width: 40px; height: 40px; }
+  .weer-icoon svg { width: 100%; height: 100%; }
+  .weer-icoon .zon { fill: var(--zon); stroke: var(--zon); }
+  .weer-icoon .wolk { fill: var(--wolk); }
+  .weer-icoon .druppel { stroke: var(--wolk); }
+  .weer h2,
+  .nap h2 {
+    margin: 0;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--secundair);
+  }
+  #bericht {
+    margin: 0.1rem 0 0;
+    font-size: 0.95rem;
+  }
+  #bericht.leeg { color: var(--secundair); }
+
+  /* ---------- C. Getij: het centrale element ---------- */
+  .getij-kaarten {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+  .getij-kaart { padding: 0.9rem 1rem 1rem; }
+  .getij-kop {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
     font-size: 0.9rem;
-    color: var(--tekst);
-    margin-right: 0.5rem;
+    font-weight: 600;
+    color: var(--primair);
   }
+  .getij-kop svg { width: 24px; height: 15px; stroke: var(--wolk); }
+  .getij-tijd {
+    margin-top: 0.35rem;
+    font-size: 2.6rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--primair);
+  }
+  .getij-hoogte {
+    margin-top: 0.35rem;
+    font-size: 1.05rem;
+    font-weight: 500;
+    color: var(--secundair);
+    font-variant-numeric: tabular-nums;
+  }
+  .getij-dag {
+    font-size: 0.8rem;
+    font-weight: 400;
+    margin-left: 0.25rem;
+  }
+  #getij-fout { margin: 0; color: var(--secundair); font-size: 0.9rem; }
+
+  /* ---------- D. NAP-rij ---------- */
+  .nap {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.7rem 1rem;
+  }
+  .nap-pin { width: 20px; height: 20px; flex: none; fill: var(--primair); }
+  .nap-info { flex: 1; min-width: 0; }
+  #nap-plaats { font-weight: 600; color: var(--primair); }
+  #nap-tekst { font-size: 0.88rem; color: var(--secundair); }
+  .nap-niveau {
+    flex: none;
+    padding-left: 0.9rem;
+    border-left: 1px solid var(--lijn);
+    text-align: right;
+    line-height: 1.15;
+  }
+  #nap-niveau { display: block; font-weight: 700; font-size: 1.05rem; color: var(--primair); font-variant-numeric: tabular-nums; }
+  .nap-niveau small { font-size: 0.75rem; color: var(--secundair); }
+
+  /* ---------- E. Kopieerknop en status ---------- */
   .acties {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
+    justify-content: center;
+    gap: 0.6rem;
+    margin-top: 0.25rem;
   }
   button#kopieer {
     font: inherit;
-    font-size: 0.95rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
     padding: 0.45rem 0.9rem;
-    border-radius: 6px;
-    border: 1px solid var(--zee);
-    background: var(--zee);
-    color: white;
+    border: 1px solid var(--lijn);
+    border-radius: 999px;
+    background: var(--kaart);
+    color: var(--primair);
     cursor: pointer;
   }
-  button#kopieer:hover:not(:disabled) {
-    background: #145a80;
+  button#kopieer svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; }
+  button#kopieer:hover:not(:disabled) { border-color: var(--primair); }
+  button#kopieer:disabled { opacity: 0.5; cursor: default; }
+  button#kopieer:focus-visible { outline: 2px solid var(--primair); outline-offset: 2px; }
+  #kopieer-status { font-size: 0.8rem; color: var(--secundair); }
+
+  .bijgewerkt {
+    margin: 0;
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--secundair);
   }
-  button#kopieer:focus-visible {
-    outline: 3px solid #7fb3cc;
-    outline-offset: 2px;
-  }
-  button#kopieer:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-  #kopieer-status {
-    font-size: 0.9rem;
-    color: var(--tekst);
-  }
-  .drempel {
-    font-size: 0.85rem;
-    color: #5a6b78;
-    background: white;
-    border-left: 3px solid var(--zee);
-    border-radius: 6px;
-    padding: 0.5rem 0.75rem;
-    margin-bottom: 1rem;
-  }
-  .drempel strong {
-    color: var(--zee);
-    font-weight: 600;
-  }
+  .bijgewerkt.oud { color: #b35c00; font-weight: 600; }
+  [data-thema="nacht"] .bijgewerkt.oud { color: #ffb366; }
+  [data-thema="rood"] .bijgewerkt.oud { color: var(--primair); }
+
+  /* ---------- Rollende balk met waterstanden ---------- */
   .ticker {
     position: fixed;
     left: 0;
@@ -191,127 +391,40 @@ pasThemaToe();
     align-items: center;
     animation: rol var(--duur, 60s) linear infinite;
   }
-  .ticker:hover .ticker-band {
-    animation-play-state: paused;
-  }
-  .ticker-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-  }
-  .ticker-item b {
-    font-weight: 600;
-  }
-  .ticker-item .pijl {
-    color: #9fd3ec;
-    font-size: 0.75rem;
-  }
-  .ticker-item .geen {
-    color: #b9cdd8;
-  }
-  .ticker-icoon {
-    height: 0.8rem;
-    width: auto;
-    margin: 0 1.8rem;
-    vertical-align: middle;
-  }
-  @keyframes rol {
-    to { transform: translateX(-50%); }
-  }
+  .ticker:hover .ticker-band { animation-play-state: paused; }
+  .ticker-item { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .ticker-item b { font-weight: 600; }
+  .ticker-item .pijl { color: #9fd3ec; font-size: 0.75rem; }
+  .ticker-item .geen { color: #b9cdd8; }
+  .ticker-icoon { height: 0.8rem; width: auto; margin: 0 1.8rem; vertical-align: middle; }
+  @keyframes rol { to { transform: translateX(-50%); } }
   @media (prefers-reduced-motion: reduce) {
     .ticker { overflow-x: auto; }
     .ticker-band { animation: none; }
   }
-  /* Ruimte onderaan, zodat de balk geen inhoud bedekt. */
-  body { padding-bottom: 4rem; }
-  .kopregel {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-    margin-bottom: 1rem;
-  }
-  .kopregel select#locatie {
-    margin-bottom: 0;
-  }
-  button#thema {
-    font: inherit;
-    font-size: 0.8rem;
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
-    border: 1px solid #b9cdd8;
-    background: rgba(255, 255, 255, 0.6);
-    color: #5a6b78;
-    cursor: pointer;
-  }
-  button#thema:hover {
-    border-color: var(--zee);
-    color: var(--zee);
-  }
-  button#thema:focus-visible {
-    outline: 3px solid #7fb3cc;
-    outline-offset: 2px;
-  }
-
-  /* ---------- Nachtweergave: donkerblauw ---------- */
-  [data-thema="nacht"] body { background: #0a1620; color: #d6e2ea; }
-  [data-thema="nacht"] body::before { opacity: 0.18; filter: blur(3px) brightness(0.55); }
-  [data-thema="nacht"] .bericht { background: #13263a; box-shadow: none; color: #d6e2ea; }
-  [data-thema="nacht"] .getij-regel { color: #8cc4e6; }
-  [data-thema="nacht"] .status,
-  [data-thema="nacht"] label[for="locatie"],
-  [data-thema="nacht"] #kopieer-status { color: #9fb3c2; }
-  [data-thema="nacht"] select#locatie { background: #13263a; color: #d6e2ea; border-color: #2b4560; }
-  [data-thema="nacht"] button#kopieer { background: #1f5f8b; border-color: #1f5f8b; }
-  [data-thema="nacht"] button#kopieer:hover:not(:disabled) { background: #2a73a6; }
-  [data-thema="nacht"] .drempel { background: #13263a; color: #9fb3c2; border-left-color: #8cc4e6; }
-  [data-thema="nacht"] .drempel strong { color: #8cc4e6; }
   [data-thema="nacht"] .ticker { background: #012a4f; }
   [data-thema="nacht"] .ticker-icoon { opacity: 0.75; }
-  [data-thema="nacht"] button#thema { background: transparent; border-color: #2b4560; color: #9fb3c2; }
-
-  /* ---------- Rood brugscherm: spaart het nachtzicht ---------- */
-  [data-thema="rood"] body { background: #000; color: #c42a1a; }
-  [data-thema="rood"] body::before { display: none; }
-  [data-thema="rood"] .bericht { background: #120303; box-shadow: none; color: #c42a1a; border: 1px solid #2a0705; }
-  [data-thema="rood"] .getij-regel { color: #e0321f; }
-  [data-thema="rood"] .status,
-  [data-thema="rood"] label[for="locatie"],
-  [data-thema="rood"] #kopieer-status { color: #8f1e12; }
-  [data-thema="rood"] select#locatie { background: #120303; color: #c42a1a; border-color: #3a0a06; }
-  [data-thema="rood"] button#kopieer { background: #3a0a06; border-color: #5a1009; color: #e0321f; }
-  [data-thema="rood"] button#kopieer:hover:not(:disabled) { background: #4a0d07; }
-  [data-thema="rood"] .drempel { background: #120303; color: #8f1e12; border-left-color: #c42a1a; }
-  [data-thema="rood"] .drempel strong { color: #c42a1a; }
   [data-thema="rood"] .ticker { background: #140404; color: #c42a1a; }
   [data-thema="rood"] .ticker-item .pijl,
   [data-thema="rood"] .ticker-item .geen { color: #8f1e12; }
   [data-thema="rood"] .ticker-icoon { filter: grayscale(1) sepia(1) saturate(6) hue-rotate(-30deg) brightness(0.55); }
-  [data-thema="rood"] button#thema { background: transparent; border-color: #3a0a06; color: #8f1e12; }
-  [data-thema="rood"] button#kopieer:focus-visible,
-  [data-thema="rood"] button#thema:focus-visible { outline-color: #8f1e12; }
-  /* ---------- Bijgewerkt-regel ---------- */
-  .bijgewerkt {
-    font-size: 0.8rem;
-    color: #5a6b78;
-    margin: 0.5rem 0 0;
+
+  @media (max-width: 380px) {
+    .getij-tijd { font-size: 2.2rem; }
+    #locatie-naam { font-size: 1.25rem; }
   }
-  .bijgewerkt.oud { color: #b35c00; font-weight: 600; }
-
-  [data-thema="nacht"] .bijgewerkt { color: #9fb3c2; }
-  [data-thema="nacht"] .bijgewerkt.oud { color: #ffb366; }
-
-  [data-thema="rood"] .bijgewerkt { color: #8f1e12; }
-  [data-thema="rood"] .bijgewerkt.oud { color: #e0321f; }
 </style>
 </head>
 <body>
 <main>
-  <div class="kopregel">
-    <div>
-    <label for="locatie">Meetlocatie:</label>
-    <select id="locatie">
+  <header class="kop">
+    <label class="locatie" for="locatie">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>
+      <span>
+        <span class="locatie-label">Meetlocatie</span>
+        <span class="select-wrap">
+          <span id="locatie-naam">Harlingen</span>
+          <select id="locatie" aria-label="Meetlocatie">
       <option value="denhelder">Den Helder</option>
       <option value="denoever">Den Oever</option>
       <option value="texel">Texel</option>
@@ -324,22 +437,47 @@ pasThemaToe();
       <option value="lauwersoog">Lauwersoog</option>
       <option value="delfzijl">Delfzijl</option>
     </select>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 6l4.5 4.5L12.5 6" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+      </span>
+    </label>
+    <div class="thema" id="thema" role="group" aria-label="Weergave">
+      <button type="button" data-keuze="auto" aria-pressed="false">Auto</button>
+      <button type="button" data-keuze="dag" aria-pressed="false" title="Dag" aria-label="Dag"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round"/></svg></button>
+      <button type="button" data-keuze="nacht" aria-pressed="false" title="Nacht" aria-label="Nacht"><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" stroke-linejoin="round"/></svg></button>
+      <button type="button" data-keuze="rood" aria-pressed="false" title="Rood brugscherm" aria-label="Rood brugscherm"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="currentColor"/></svg></button>
     </div>
-    <button id="thema" type="button" aria-live="polite">Auto</button>
-  </div>
+  </header>
 
-  <div id="inhoud">
-    <p id="bericht" class="status">Bezig met laden...</p>
-    <p id="getijregel" class="bericht getij-regel" hidden></p>
-  </div>
+  <section class="kaart weer" aria-labelledby="weer-kop">
+    <div class="weer-icoon" id="weer-icoon"></div>
+    <div>
+      <h2 id="weer-kop">Verwachting</h2>
+      <p id="bericht" class="leeg">Bezig met laden...</p>
+    </div>
+  </section>
+
+  <section class="getij" id="getij" aria-label="Getij">
+    <div class="getij-kaarten" id="getij-kaarten"></div>
+    <p id="getij-fout" hidden></p>
+  </section>
+
+  <section class="kaart nap" aria-labelledby="nap-plaats">
+    <svg viewBox="0 0 24 24" aria-hidden="true" class="nap-pin"><path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>
+    <div class="nap-info">
+      <div id="nap-plaats">West-Terschelling</div>
+      <div id="nap-tekst">Wordt geladen...</div>
+    </div>
+    <div class="nap-niveau"><span id="nap-niveau">+50 cm</span><small>NAP</small></div>
+  </section>
 
   <div class="acties">
-    <button id="kopieer" type="button" disabled>Kopieer bericht en getij</button>
+    <button id="kopieer" type="button" disabled>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+      Kopieer getijbericht
+    </button>
     <span id="kopieer-status" role="status" aria-live="polite"></span>
   </div>
-
-
-  <div id="drempel" class="drempel">NAP West-Terschelling +50 cm wordt geladen...</div>
   <p id="bijgewerkt" class="bijgewerkt" aria-live="polite"></p>
 </main>
 
@@ -348,6 +486,7 @@ pasThemaToe();
 </div>
 
 <script>
+
 function formatTijd(iso) {
   if (!iso) return "onbekend";
   const d = new Date(iso);
@@ -460,30 +599,86 @@ async function laadBron(sleutel, url, toon, toonFout) {
 // ---------- Marifoonbericht en getij ----------
 // Twee losse onderdelen: als het ene faalt, blijft het andere gewoon staan.
 
+// Wat de kopieerknop kopieert. Bewust in hetzelfde tekstformaat als
+// voorheen, zodat het bericht zo door te geven is.
+const kopieTekst = { bericht: "", getij: "" };
+
+function kortTijd(iso) {
+  // "12:40" vandaag, "morgen 02:15" morgen, anders "za 08:10".
+  const d = new Date(iso);
+  const nu = new Date();
+  const morgen = new Date(nu);
+  morgen.setDate(nu.getDate() + 1);
+  const tijd = d.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" });
+  if (d.toDateString() === nu.toDateString()) return tijd;
+  if (d.toDateString() === morgen.toDateString()) return `morgen ${tijd}`;
+  return `${d.toLocaleDateString("nl-NL", { weekday: "short" })} ${tijd}`;
+}
+
+function dagLabel(iso) {
+  // Alleen een dag noemen als het niet vandaag is.
+  const d = new Date(iso);
+  const nu = new Date();
+  if (d.toDateString() === nu.toDateString()) return "";
+  const morgen = new Date(nu);
+  morgen.setDate(nu.getDate() + 1);
+  if (d.toDateString() === morgen.toDateString()) return "morgen";
+  return d.toLocaleDateString("nl-NL", { weekday: "long" });
+}
+
+function cmTekst(cm) {
+  if (cm == null || !Number.isFinite(cm)) return "";
+  const teken = cm > 0 ? "+" : cm < 0 ? "−" : "";
+  return `${teken}${Math.abs(cm)} cm`;
+}
+
+// Eenvoudige weericonen, gekozen op woorden in het marifoonbericht.
+const ICONEN = {
+  zonWolk: `<svg viewBox="0 0 48 48" aria-hidden="true"><g class="zon"><circle cx="18" cy="18" r="7"/><path d="M18 4v4M18 28v4M4 18h4M28 18h4M8.1 8.1l2.8 2.8M25.1 25.1l2.8 2.8M8.1 27.9l2.8-2.8M25.1 10.9l2.8-2.8" stroke-width="2.4" stroke-linecap="round" fill="none"/></g><path class="wolk" d="M16 40h22a8 8 0 0 0 0-16 11 11 0 0 0-21 3.5A6.3 6.3 0 0 0 16 40z"/></svg>`,
+  maanWolk: `<svg viewBox="0 0 48 48" aria-hidden="true"><path class="zon" d="M24 6a12 12 0 1 0 11 17A10 10 0 0 1 24 6z"/><path class="wolk" d="M16 42h22a8 8 0 0 0 0-16 11 11 0 0 0-21 3.5A6.3 6.3 0 0 0 16 42z"/></svg>`,
+  regen: `<svg viewBox="0 0 48 48" aria-hidden="true"><path class="wolk" d="M14 30h24a8 8 0 0 0 0-16 11 11 0 0 0-21 3.5A6.3 6.3 0 0 0 14 30z"/><path class="druppel" d="M17 35l-2 5M25 35l-2 5M33 35l-2 5" stroke-width="2.6" stroke-linecap="round" fill="none"/></svg>`,
+  onweer: `<svg viewBox="0 0 48 48" aria-hidden="true"><path class="wolk" d="M14 28h24a8 8 0 0 0 0-16 11 11 0 0 0-21 3.5A6.3 6.3 0 0 0 14 28z"/><path class="zon" d="M26 30l-6 8h5l-3 7 8-10h-5l3-5z"/></svg>`,
+  mist: `<svg viewBox="0 0 48 48" aria-hidden="true"><path class="wolk" d="M14 26h24a8 8 0 0 0 0-16 11 11 0 0 0-21 3.5A6.3 6.3 0 0 0 14 26z"/><path class="druppel" d="M9 32h30M13 38h26" stroke-width="2.6" stroke-linecap="round" fill="none"/></svg>`,
+};
+
+function kiesWeerIcoon(tekst) {
+  const t = (tekst || "").toLowerCase();
+  if (/onweer/.test(t)) return ICONEN.onweer;
+  if (/mist|nevel|zicht (matig|slecht)/.test(t) && !/regen|bui/.test(t)) return ICONEN.mist;
+  if (/regen|bui|motregen|sneeuw|hagel/.test(t)) return ICONEN.regen;
+  return document.documentElement.dataset.thema === "dag" ? ICONEN.zonWolk : ICONEN.maanWolk;
+}
+
 function toonBericht(marifoon) {
   const p = document.getElementById("bericht");
   if (marifoon.tekst) {
-    p.className = "bericht";
     p.textContent = marifoon.tekst;
+    p.classList.remove("leeg");
+    kopieTekst.bericht = marifoon.tekst;
   } else {
-    p.className = "status";
     p.textContent = "Geen actueel marifoonbericht beschikbaar.";
+    p.classList.add("leeg");
+    kopieTekst.bericht = "";
   }
+  document.getElementById("weer-icoon").innerHTML = kiesWeerIcoon(marifoon.tekst);
   werkKopieerknopBij();
 }
 
 function toonBerichtFout(err) {
   const p = document.getElementById("bericht");
-  p.className = "status";
-  p.textContent = `Marifoonbericht niet beschikbaar (${err.message}).`;
+  p.textContent = `Niet beschikbaar (${err.message}).`;
+  p.classList.add("leeg");
+  kopieTekst.bericht = "";
+  document.getElementById("weer-icoon").innerHTML = ICONEN.mist;
   werkKopieerknopBij();
 }
 
+const GOLF = `<svg viewBox="0 0 32 20" aria-hidden="true"><path d="M2 5c3.5-3 6.5-3 10 0s6.5 3 10 0 6.5-3 8 0M2 11c3.5-3 6.5-3 10 0s6.5 3 10 0 6.5-3 8 0M2 17c3.5-3 6.5-3 10 0s6.5 3 10 0 6.5-3 8 0" fill="none" stroke-width="2" stroke-linecap="round"/></svg>`;
+
 function toonGetij(getij) {
   // De eerstvolgende twee extremen in de volgorde waarin ze komen: soms LW
-  // dan HW, soms andersom. We rekenen "eerstvolgend" opnieuw uit vanaf nu,
+  // dan HW, soms andersom. "Eerstvolgend" rekenen we opnieuw uit vanaf nu,
   // zodat een bewaarde versie offline ook uren later nog klopt.
-  const p = document.getElementById("getijregel");
   const nu = Date.now();
   let komende = (getij.extremen || [])
     .filter((e) => new Date(e.tijdstip).getTime() >= nu)
@@ -494,21 +689,45 @@ function toonGetij(getij) {
       .filter((e) => e && new Date(e.tijdstip).getTime() >= nu)
       .sort((a, b) => new Date(a.tijdstip) - new Date(b.tijdstip));
   }
+
+  const kaarten = document.getElementById("getij-kaarten");
+  const fout = document.getElementById("getij-fout");
+  if (!komende.length) {
+    kaarten.replaceChildren();
+    fout.textContent = `${getij.locatie}: geen komende getijden bekend.`;
+    fout.hidden = false;
+    kopieTekst.getij = "";
+    werkKopieerknopBij();
+    return;
+  }
+  fout.hidden = true;
+  kaarten.replaceChildren(...komende.map((e) => {
+    const hw = e.type === "hoogwater";
+    const kaart = document.createElement("div");
+    kaart.className = `kaart getij-kaart ${hw ? "hw" : "lw"}`;
+    const dag = dagLabel(e.tijdstip);
+    kaart.innerHTML = `
+      <div class="getij-kop">${GOLF}<span>${hw ? "Hoogwater" : "Laagwater"}</span></div>
+      <div class="getij-tijd">${new Date(e.tijdstip).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}</div>
+      <div class="getij-hoogte">${cmTekst(e.waardeCm)}${dag ? ` <span class="getij-dag">${dag}</span>` : ""}</div>`;
+    return kaart;
+  }));
+  document.getElementById("getij").setAttribute("aria-label", `Getij ${getij.locatie}`);
+
   const delen = komende.map((e) => {
     const label = e.type === "hoogwater" ? "HW" : "LW";
     return `${label}: ${formatTijd(e.tijdstip)}${formatCm(e.waardeCm)}`;
   });
-  p.textContent = delen.length
-    ? `${getij.locatie}, ${delen.join(", ")}`
-    : `${getij.locatie}, geen komende getijden bekend.`;
-  p.hidden = false;
+  kopieTekst.getij = `${getij.locatie}, ${delen.join(", ")}`;
   werkKopieerknopBij();
 }
 
 function toonGetijFout(err) {
-  const p = document.getElementById("getijregel");
-  p.textContent = `Getijgegevens niet beschikbaar (${err.message}).`;
-  p.hidden = false;
+  document.getElementById("getij-kaarten").replaceChildren();
+  const fout = document.getElementById("getij-fout");
+  fout.textContent = `Getijgegevens niet beschikbaar (${err.message}).`;
+  fout.hidden = false;
+  kopieTekst.getij = "";
   werkKopieerknopBij();
 }
 
@@ -519,20 +738,14 @@ function laadAlles() {
 }
 
 function werkKopieerknopBij() {
-  const iets = document.getElementById("bericht").classList.contains("bericht")
-    || !document.getElementById("getijregel").hidden;
-  document.getElementById("kopieer").disabled = !iets;
+  document.getElementById("kopieer").disabled = !(kopieTekst.bericht || kopieTekst.getij);
 }
 
 async function kopieerAlles() {
   // Marifoonbericht en getijregel in één keer, gescheiden door een witregel.
   const status = document.getElementById("kopieer-status");
-  const regels = [...document.querySelectorAll("#inhoud p")]
-    .filter((p) => !p.hidden)
-    .map((p) => p.textContent.trim())
-    .filter(Boolean);
-  if (!regels.length) return;
-  const tekst = regels.join("\n\n");
+  const tekst = [kopieTekst.bericht, kopieTekst.getij].filter(Boolean).join("\n\n");
+  if (!tekst) return;
 
   try {
     await navigator.clipboard.writeText(tekst);
@@ -548,7 +761,7 @@ async function kopieerAlles() {
     const gelukt = document.execCommand("copy");
     veld.remove();
     if (!gelukt) {
-      status.textContent = "Kopiëren lukte niet. Selecteer de tekst handmatig.";
+      status.textContent = "Kopiëren lukte niet.";
       return;
     }
   }
@@ -558,25 +771,35 @@ async function kopieerAlles() {
 }
 
 // ---------- NAP West-Terschelling +50 cm ----------
+// Als venster geschreven: wanneer staat het water erboven.
 
 function toonDrempel(d) {
-  const el = document.getElementById("drempel");
-  const kop = `<strong>NAP ${d.locatie} +${d.niveauCm} cm</strong>`;
+  document.getElementById("nap-plaats").textContent = d.locatie;
+  document.getElementById("nap-niveau").textContent = `+${d.niveauCm} cm`;
+  const el = document.getElementById("nap-tekst");
   const nu = Date.now();
-  const komende = (d.komende || []).filter((k) => new Date(k.tijdstip).getTime() >= nu);
-  if (komende.length) {
-    el.innerHTML = `${kop}: ${komende.map((k) => `${k.richting} ${formatTijd(k.tijdstip)}`).join(", ")}`;
-  } else if (d.komende?.length) {
-    // Alle bewaarde momenten liggen al achter ons (offline).
-    el.innerHTML = `${kop}: geen actuele verwachting.`;
+  const k = (d.komende || []).filter((x) => new Date(x.tijdstip).getTime() >= nu);
+
+  if (!k.length) {
+    el.textContent = d.komende?.length
+      ? "Geen actuele verwachting."
+      : d.nuBoven ? "Blijft erboven binnen de verwachting." : "Wordt niet gehaald binnen de verwachting.";
+    return;
+  }
+  const [a, b] = k;
+  if (a.richting === "stijgend") {
+    el.textContent = b && b.richting === "dalend"
+      ? `Erboven van ${kortTijd(a.tijdstip)} tot ${kortTijd(b.tijdstip)}`
+      : `Erboven vanaf ${kortTijd(a.tijdstip)}`;
   } else {
-    el.innerHTML = `${kop}: ${d.nuBoven ? "blijft erboven" : "wordt niet gehaald"} binnen de verwachting.`;
+    el.textContent = b && b.richting === "stijgend"
+      ? `Erboven tot ${kortTijd(a.tijdstip)}, weer vanaf ${kortTijd(b.tijdstip)}`
+      : `Erboven tot ${kortTijd(a.tijdstip)}`;
   }
 }
 
 function toonDrempelFout(err) {
-  document.getElementById("drempel").textContent =
-    `NAP West-Terschelling +50 cm: niet beschikbaar (${err.message}).`;
+  document.getElementById("nap-tekst").textContent = `Niet beschikbaar (${err.message}).`;
 }
 
 function laadDrempel() {
@@ -699,21 +922,24 @@ function werkBijgewerktBij() {
   el.classList.toggle("oud", offline || uitCache || leeftijd > OUD_NA_MS);
 }
 
-// ---------- Themaknop ----------
-const THEMA_VOLGORDE = ["auto", "dag", "nacht", "rood"];
-const THEMA_LABEL = { dag: "☀ Dag", nacht: "☾ Nacht", rood: "● Rood brug" };
+// ---------- Weergaveschakelaar ----------
+// Vier knoppen naast elkaar: Auto, dag, nacht en rood brugscherm. De
+// gekozen knop is gevuld. Op "Auto" volgt de pagina zon op en zon onder.
 
 function toonThemaKnop() {
   const { keuze, thema } = pasThemaToe();
-  const knop = document.getElementById("thema");
-  knop.textContent = keuze === "auto" ? `Auto · ${thema === "nacht" ? "nacht" : "dag"}` : THEMA_LABEL[keuze];
-  knop.title = "Wissel tussen automatisch, dag, nacht en rood brugscherm";
+  for (const knop of document.querySelectorAll("#thema button")) {
+    const actief = knop.dataset.keuze === keuze;
+    knop.setAttribute("aria-pressed", String(actief));
+  }
+  const auto = document.querySelector('#thema button[data-keuze="auto"]');
+  auto.title = `Automatisch op zon op en onder, nu ${thema === "nacht" ? "nacht" : "dag"}`;
 }
 
-document.getElementById("thema").addEventListener("click", () => {
-  const huidig = leesThemaKeuze();
-  const volgende = THEMA_VOLGORDE[(THEMA_VOLGORDE.indexOf(huidig) + 1) % THEMA_VOLGORDE.length];
-  try { localStorage.setItem("thema", volgende); } catch {}
+document.getElementById("thema").addEventListener("click", (e) => {
+  const knop = e.target.closest("button[data-keuze]");
+  if (!knop) return;
+  try { localStorage.setItem("thema", knop.dataset.keuze); } catch {}
   toonThemaKnop();
 });
 
@@ -757,6 +983,11 @@ function bewaarLocatie() {
   try { localStorage.setItem("getijLocatie", document.getElementById("locatie").value); } catch {}
 }
 
+function toonLocatieNaam() {
+  const select = document.getElementById("locatie");
+  document.getElementById("locatie-naam").textContent = select.options[select.selectedIndex].text;
+}
+
 function herstelLocatie() {
   try {
     const opgeslagen = localStorage.getItem("getijLocatie");
@@ -768,6 +999,7 @@ function herstelLocatie() {
 }
 
 document.getElementById("locatie").addEventListener("change", () => {
+  toonLocatieNaam();
   bewaarLocatie();
   laadAlles();
 });
@@ -797,6 +1029,7 @@ if ("serviceWorker" in navigator) {
 }
 
 herstelLocatie();
+toonLocatieNaam();
 ververs();
 </script>
 </body>
