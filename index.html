@@ -334,17 +334,35 @@ pasThemaToe();
   }
   #getij-fout { margin: 0; color: var(--secundair); font-size: 0.9rem; }
 
-  /* ---------- D. NAP-rij ---------- */
-  .nap {
+  /* ---------- D. NAP-vensters ---------- */
+  .nap { padding: 0.7rem 1rem 0.8rem; }
+  .nap-kop {
     display: flex;
     align-items: center;
     gap: 0.9rem;
-    padding: 0.7rem 1rem;
   }
   .nap-pin { width: 20px; height: 20px; flex: none; fill: var(--primair); }
   .nap-info { flex: 1; min-width: 0; }
   #nap-plaats { font-weight: 600; color: var(--primair); }
-  #nap-tekst { font-size: 0.88rem; color: var(--secundair); }
+  .nap-sub { font-size: 0.8rem; color: var(--secundair); }
+  /* Per dag één regel: dag links, vensters rechts. */
+  #nap-tekst {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 0.9rem;
+    row-gap: 0.3rem;
+    margin-top: 0.65rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--lijn);
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+  }
+  #nap-tekst.melding { display: block; color: var(--secundair); }
+  .nap-dag { color: var(--secundair); }
+  .nap-ramen { display: flex; flex-wrap: wrap; column-gap: 0.7rem; row-gap: 0.1rem; color: var(--tekst); }
+  .nap-ramen > span { min-width: 7rem; } /* vaste breedte, zodat de kolommen recht onder elkaar staan */
+  .nap-ramen .geen { color: var(--secundair); }
+  .nap-ramen .nu { font-weight: 600; color: var(--primair); }
   .nap-niveau {
     flex: none;
     padding-left: 0.9rem;
@@ -427,6 +445,9 @@ pasThemaToe();
   [data-thema="rood"] .ticker-item .geen { color: #8f1e12; }
 
   @media (max-width: 380px) {
+    #nap-tekst { font-size: 0.84rem; column-gap: 0.7rem; }
+    .nap-ramen { column-gap: 0.5rem; }
+    .nap-ramen > span { min-width: 6.4rem; }
     .getij-tijd { font-size: 2.2rem; }
     #locatie-naam { font-size: 1.25rem; }
   }
@@ -479,12 +500,15 @@ pasThemaToe();
   </section>
 
   <section class="kaart nap" aria-labelledby="nap-plaats">
-    <svg viewBox="0 0 24 24" aria-hidden="true" class="nap-pin"><path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>
-    <div class="nap-info">
-      <div id="nap-plaats">West-Terschelling</div>
-      <div id="nap-tekst">Wordt geladen...</div>
+    <div class="nap-kop">
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="nap-pin"><path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>
+      <div class="nap-info">
+        <div id="nap-plaats">West-Terschelling</div>
+        <div class="nap-sub">Water boven het niveau</div>
+      </div>
+      <div class="nap-niveau"><span id="nap-niveau">+50 cm</span><small>NAP</small></div>
     </div>
-    <div class="nap-niveau"><span id="nap-niveau">+50 cm</span><small>NAP</small></div>
+    <div id="nap-tekst" class="melding">Wordt geladen...</div>
   </section>
 
   <div class="acties">
@@ -790,28 +814,84 @@ async function kopieerAlles() {
 }
 
 // ---------- NAP West-Terschelling +50 cm ----------
-// Wanneer het water door +50 cm gaat: stijgend of dalend, in de volgorde
-// waarin het gebeurt.
+// De vensters waarin het water boven het niveau staat, voor vandaag, morgen
+// en overmorgen. Eén regel per dag; een venster over middernacht staat bij
+// de dag waarop het begint. Een lopend venster toont "nu tot ...".
+// Verlopen vensters vallen er vanzelf af, ook bij een bewaarde versie offline.
+
+function nlDagSleutel(ms) {
+  return new Date(ms).toLocaleDateString("en-CA", { timeZone: "Europe/Amsterdam" });
+}
+
+function klok(ms) {
+  return new Date(ms).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" });
+}
 
 function toonDrempel(d) {
+  toonDrempel.laatste = d; // voor de minuutklok
   document.getElementById("nap-plaats").textContent = d.locatie;
   document.getElementById("nap-niveau").textContent = `+${d.niveauCm} cm`;
   const el = document.getElementById("nap-tekst");
   const nu = Date.now();
-  const k = (d.komende || []).filter((x) => new Date(x.tijdstip).getTime() >= nu);
 
-  if (!k.length) {
-    el.textContent = d.komende?.length
-      ? "Geen actuele verwachting."
-      : d.nuBoven ? "Blijft erboven binnen de verwachting." : "Wordt niet gehaald binnen de verwachting.";
+  if (!Array.isArray(d.vensters)) {
+    // Oude bewaarde versie zonder vensters: even de oude regel tonen.
+    const k = (d.komende || []).filter((x) => new Date(x.tijdstip).getTime() >= nu);
+    const tekst = k.map((x) => `${x.richting} ${kortTijd(x.tijdstip)}`).join(" \u00B7 ");
+    el.className = "melding";
+    el.textContent = tekst ? tekst.charAt(0).toUpperCase() + tekst.slice(1) : "Geen actuele verwachting.";
     return;
   }
-  const tekst = k.map((x) => `${x.richting} ${kortTijd(x.tijdstip)}`).join(" \u00B7 ");
-  el.textContent = tekst.charAt(0).toUpperCase() + tekst.slice(1);
+
+  // Vandaag, morgen en overmorgen.
+  const dagen = [0, 1, 2].map((n) => {
+    const dag = new Date(nu);
+    dag.setDate(dag.getDate() + n);
+    const label = n === 0 ? "Vandaag" : n === 1 ? "Morgen"
+      : dag.toLocaleDateString("nl-NL", { weekday: "long" }).replace(/^./, (c) => c.toUpperCase());
+    return { sleutel: nlDagSleutel(dag.getTime()), label, ramen: [] };
+  });
+
+  for (const v of d.vensters) {
+    const van = new Date(v.van).getTime();
+    const tot = v.tot ? new Date(v.tot).getTime() : null;
+    if (tot !== null && tot <= nu) continue; // al voorbij
+    const loopt = van <= nu;
+    const dag = dagen.find((x) => x.sleutel === nlDagSleutel(loopt ? nu : van));
+    if (!dag) continue;
+    const tekst = loopt
+      ? (tot ? `nu tot ${klok(tot)}` : "nu, en daarna")
+      : (tot ? `${klok(van)} \u2013 ${klok(tot)}` : `vanaf ${klok(van)}`);
+    dag.ramen.push({ tekst, loopt });
+  }
+
+  el.className = "";
+  el.replaceChildren(...dagen.flatMap((dag) => {
+    const label = document.createElement("span");
+    label.className = "nap-dag";
+    label.textContent = dag.label;
+    const ramen = document.createElement("span");
+    ramen.className = "nap-ramen";
+    if (!dag.ramen.length) {
+      const geen = document.createElement("span");
+      geen.className = "geen";
+      geen.textContent = "geen";
+      ramen.appendChild(geen);
+    }
+    for (const r of dag.ramen) {
+      const s = document.createElement("span");
+      if (r.loopt) s.className = "nu";
+      s.textContent = r.tekst;
+      ramen.appendChild(s);
+    }
+    return [label, ramen];
+  }));
 }
 
 function toonDrempelFout(err) {
-  document.getElementById("nap-tekst").textContent = `Niet beschikbaar (${err.message}).`;
+  const el = document.getElementById("nap-tekst");
+  el.className = "melding";
+  el.textContent = `Niet beschikbaar (${err.message}).`;
 }
 
 function laadDrempel() {
@@ -964,6 +1044,7 @@ document.getElementById("kopieer").addEventListener("click", kopieerAlles);
 setInterval(() => {
   toonThemaKnop();
   werkBijgewerktBij();
+  if (toonDrempel.laatste) toonDrempel(toonDrempel.laatste); // "nu tot" en voorbije vensters
 }, 60 * 1000);
 toonThemaKnop();
 
