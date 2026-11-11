@@ -9,7 +9,13 @@
 //   - sourceName h_6 is "rws eindverwachting" (de rode lijn in de grafiek)
 //   - sourceName S_4 is astronomisch, S_1 is de meting
 //   - waarden in cm NAP, per 10 minuten, tijden in UTC ("Z")
-// De verwachting loopt ongeveer 48 uur vooruit.
+// De verwachting loopt ruim drie dagen vooruit (gecontroleerd 11 november 2026).
+//
+// Naast de eerstvolgende twee doorgangen ("komende", gebruikt door rss.js)
+// geeft dit bestand de vensters waarin het water boven het niveau staat, tot
+// en met overmorgen: [{ van, tot, maxCm }]. Loopt een venster al, dan ligt
+// "van" in het verleden; loopt het door tot na het einde van de verwachting,
+// dan is "tot" null.
 //
 // Terugval: lukt RWsOS niet (storing, of RWS weigert het serveradres), dan
 // lezen we dezelfde soort verwachting uit de CSV van waterinfo.rws.nl, die
@@ -35,13 +41,14 @@ export default async function handler(req, res) {
     let reeks = [];
     let bronNaam = "rwsos";
     try {
-      reeks = await haalReeks(LOCATIE.code, "h_6", now - 60 * 60 * 1000, now + 72 * 60 * 60 * 1000);
+      // Vanaf 8 uur terug, zodat we ook het begin van een lopend venster weten.
+      reeks = await haalReeks(LOCATIE.code, "h_6", now - 8 * 60 * 60 * 1000, now + 84 * 60 * 60 * 1000);
     } catch (e) {
       console.warn("RWsOS niet beschikbaar, terugval op waterinfo:", e.message);
     }
     if (reeks.length < 2) {
       bronNaam = "waterinfo";
-      reeks = (await haalWaterinfoReeks(LOCATIE.waterinfoCode)).filter((p) => p.ms >= now - 60 * 60 * 1000);
+      reeks = (await haalWaterinfoReeks(LOCATIE.waterinfoCode)).filter((p) => p.ms >= now - 8 * 60 * 60 * 1000);
     }
     if (reeks.length < 2) throw new Error("geen verwachting beschikbaar bij RWsOS of waterinfo");
 
@@ -52,11 +59,18 @@ export default async function handler(req, res) {
     // Staat het water nu boven het niveau? Laatste verwachte punt vóór nu.
     const huidig = [...reeks].reverse().find((p) => p.ms <= now) || reeks[0];
 
+    // Vensters die nog niet voorbij zijn en vóór het einde van overmorgen beginnen.
+    const grens = eindeVanDag(now, 2);
+    const vensters = zoekVensters(reeks, NIVEAU_CM).filter(
+      (v) => (v.tot === null || new Date(v.tot).getTime() > now) && new Date(v.van).getTime() < grens
+    );
+
     const data = {
       locatie: LOCATIE.label,
       niveauCm: NIVEAU_CM,
       nuBoven: huidig.waarde >= NIVEAU_CM,
       komende, // [{ tijdstip, richting: "stijgend" | "dalend" }]
+      vensters, // [{ van, tot, maxCm }]
       bronNaam,
       verwachtingTot: new Date(reeks[reeks.length - 1].ms).toISOString(),
       opgehaaldOp: new Date(now).toISOString(),
@@ -172,6 +186,35 @@ function zoekDoorgangen(reeks, niveau) {
     });
   }
   return uit;
+}
+
+function zoekVensters(reeks, niveau) {
+  // Aaneengesloten stukken waarin de stand op of boven het niveau ligt. Begin
+  // en eind interpoleren we lineair tussen de punten, net als de doorgangen.
+  const kruising = (a, b) =>
+    Math.round((a.ms + ((niveau - a.waarde) / (b.waarde - a.waarde)) * (b.ms - a.ms)) / 60000) * 60000;
+  const uit = [];
+  let open = reeks[0].waarde >= niveau ? { van: reeks[0].ms, max: reeks[0].waarde } : null;
+  for (let i = 1; i < reeks.length; i++) {
+    const a = reeks[i - 1];
+    const b = reeks[i];
+    if (!open && a.waarde < niveau && b.waarde >= niveau) open = { van: kruising(a, b), max: b.waarde };
+    if (open) open.max = Math.max(open.max, b.waarde);
+    if (open && a.waarde >= niveau && b.waarde < niveau) {
+      uit.push({ van: new Date(open.van).toISOString(), tot: new Date(kruising(a, b)).toISOString(), maxCm: Math.round(open.max) });
+      open = null;
+    }
+  }
+  if (open) uit.push({ van: new Date(open.van).toISOString(), tot: null, maxCm: Math.round(open.max) });
+  return uit;
+}
+
+function eindeVanDag(ms, dagenVerder) {
+  // Middernacht (Nederlandse tijd) aan het eind van vandaag + dagenVerder.
+  const [j, m, d] = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Amsterdam", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date(ms)).split("-").map(Number);
+  return nlNaarMs(j, m, d + dagenVerder + 1, 0, 0);
 }
 
 function zonderMs(ms) {
